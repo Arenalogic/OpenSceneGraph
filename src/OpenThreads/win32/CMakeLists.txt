@@ -47,6 +47,7 @@ SET(INSTALL_BINDIR bin)
 
 INSTALL(
     TARGETS OpenThreads
+    EXPORT osg-targets
     ARCHIVE DESTINATION lib COMPONENT libopenthreads-dev
     LIBRARY DESTINATION lib COMPONENT libopenthreads
     RUNTIME DESTINATION ${INSTALL_BINDIR} COMPONENT libopenthreads

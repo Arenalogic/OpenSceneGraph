@@ -1377,3 +1377,6 @@ ADD_CUSTOM_TARGET(uninstall
 #
 include(FeatureSummary)
 feature_summary(WHAT ALL)
+
+INSTALL(EXPORT osg-targets NAMESPACE unofficial::osg:: DESTINATION share/unofficial-osg)
+INSTALL(EXPORT osg-plugins NAMESPACE unofficial::osg:: DESTINATION share/unofficial-osg)
