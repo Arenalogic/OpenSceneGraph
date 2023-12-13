@@ -11,7 +11,7 @@
 #ifndef HTTP_SERVER_CONNECTION_HPP
 #define HTTP_SERVER_CONNECTION_HPP
 
-#include <asio.hpp>
+#include <boost/asio.hpp>
 #include <boost/array.hpp>
 #include <boost/noncopyable.hpp>
 #include <boost/shared_ptr.hpp>
