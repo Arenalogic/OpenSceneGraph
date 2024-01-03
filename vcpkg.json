@@ -1,0 +1,15 @@
+{
+  "name": "osg",
+  "version-string": "3.6.5",
+  "dependencies": [
+ 		"opengl-registry",
+		"zlib",
+		"freetype",
+		"nvtt",
+		"giflib",
+		"libgta",
+		"libjpeg-turbo",
+		"libpng",
+		"tiff"
+	]
+}
