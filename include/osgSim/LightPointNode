@@ -33,6 +33,8 @@ namespace osgSim {
 class OSGSIM_EXPORT LightPointNode : public osg::Node
 {
     public :
+        static osg::StateSet* getSingletonLightPointSystemSet();
+
 
         typedef std::vector< LightPoint > LightPointList;
 

@@ -30,7 +30,7 @@
 namespace osgSim
 {
 
-osg::StateSet* getSingletonLightPointSystemSet()
+osg::StateSet* LightPointNode::getSingletonLightPointSystemSet()
 {
     static osg::ref_ptr<osg::StateSet> s_stateset = 0;
     if (!s_stateset)
@@ -117,7 +117,7 @@ osg::BoundingSphere LightPointNode::computeBound() const
         if (bsphere.radius()<radius) bsphere.radius()=radius;
     }
 
-    bsphere.radius()+=1.0f;
+    bsphere.radius()+=200.0f;
     return bsphere;
 }
 
@@ -128,6 +128,10 @@ void LightPointNode::traverse(osg::NodeVisitor& nv)
     {
         // no light points so no op.
         return;
+    }
+    if (nv.getVisitorType() == osg::NodeVisitor::NODE_VISITOR)
+    {
+       setStateSet(getSingletonLightPointSystemSet());
     }
 
     //#define USE_TIMER
@@ -240,7 +244,7 @@ void LightPointNode::traverse(osg::NodeVisitor& nv)
             cv->updateCalculatedNearFar(matrix,_bbox);
 
 
-        const float minimumIntensity = 1.0f/256.0f;
+        const float minimumIntensity = 1.0e-15f;//1.0f/256.0f;
         const osg::Vec3 eyePoint = cv->getEyeLocal();
 
         double time=drawable->getSimulationTime();
