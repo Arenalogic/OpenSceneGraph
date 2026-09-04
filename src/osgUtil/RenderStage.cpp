@@ -1411,7 +1411,21 @@ void RenderStage::draw(osg::RenderInfo& renderInfo,RenderLeaf*& previous)
     if (_camera.valid()) renderInfo.popCamera();
 
     // clean up state graph to make sure RenderLeaf etc, can be reused
-    if (_rootStateGraph.valid()) _rootStateGraph->clean();
+    //
+    // ACT LOCAL PATCH (act9, 2026-06, matches Act/main): the clean() below is
+    // DISABLED. StateGraph::clean() destroys this stage's RenderLeafs while the
+    // 'previous' tracking pointer (threaded by reference across nested
+    // pre-render stages) may still point at one of them; for leaves created
+    // outside CullVisitor's pool (osgSim::LightPointNode) the next stage then
+    // dereferences freed memory -> the long-standing GameStart access violation
+    // in StateGraph::moveToRootStateGraph (StateGraph:330). Cull-side cleaning
+    // (CullVisitor::apply(Camera&) stage reuse and SceneView::cull) already
+    // releases leaves every frame, so this end-of-draw clean is redundant for
+    // any stage that keeps being culled. Upstream bug present in OSG
+    // 3.6.0..master (introduced by commit e5ff90e455). Read
+    // codewiki/wiki/tool-act-crash-hunt.md (Known Signatures) before
+    // re-enabling this line or re-importing OSG over this file.
+    //if (_rootStateGraph.valid()) _rootStateGraph->clean();
 }
 
 void RenderStage::drawImplementation(osg::RenderInfo& renderInfo,RenderLeaf*& previous)
