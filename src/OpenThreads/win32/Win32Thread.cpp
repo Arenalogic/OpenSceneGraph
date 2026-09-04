@@ -626,15 +626,16 @@ static int SetThreadAffinity(HANDLE tid, const Affinity& affinity)
 //
 int Thread::setProcessorAffinity( const Affinity& affinity )
 {
-	Win32ThreadPrivateData *pd = static_cast<Win32ThreadPrivateData *> (_prvData);
-    pd->affinity = affinity;
-    if (!pd->isRunning)
-       return 0;
-
-    if (pd->tid.get() == INVALID_HANDLE_VALUE)
-       return -1;
-
-	return SetThreadAffinity(pd->tid.get(), affinity);
+   return -1;
+// 	Win32ThreadPrivateData *pd = static_cast<Win32ThreadPrivateData *> (_prvData);
+//     pd->affinity = affinity;
+//     if (!pd->isRunning)
+//        return 0;
+// 
+//     if (pd->tid.get() == INVALID_HANDLE_VALUE)
+//        return -1;
+// 
+// 	return SetThreadAffinity(pd->tid.get(), affinity);
 }
 
 //-----------------------------------------------------------------------------
