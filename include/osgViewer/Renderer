@@ -66,6 +66,14 @@ class OSGVIEWER_EXPORT Renderer : public osg::GraphicsOperation
         void setCompileOnNextDraw(bool flag) { _compileOnNextDraw = flag; }
         bool getCompileOnNextDraw() const { return _compileOnNextDraw; }
 
+        /** Skip draw traversal in cull_draw() - cull still runs for PagedLOD terrain loading */
+        void setSkipDraw(bool flag) { _skipDraw = flag; }
+        bool getSkipDraw() const { return _skipDraw; }
+
+        /** Throttle cull traversal - only run every N frames (1 = every frame, 5 = every 5th frame) */
+        void setCullThrottle(unsigned int n) { _cullThrottle = (n > 0) ? n : 1; }
+        unsigned int getCullThrottle() const { return _cullThrottle; }
+
         virtual void operator () (osg::Object* object);
 
         virtual void operator () (osg::GraphicsContext* context);
@@ -90,6 +98,9 @@ class OSGVIEWER_EXPORT Renderer : public osg::GraphicsOperation
         bool                                                _graphicsThreadDoesCull;
         bool                                                _compileOnNextDraw;
         bool                                                _serializeDraw;
+        bool                                                _skipDraw;
+        unsigned int                                        _cullThrottle;
+        unsigned int                                        _cullFrameCounter;
 
         osg::ref_ptr<osgUtil::SceneView>                    _sceneView[2];
 

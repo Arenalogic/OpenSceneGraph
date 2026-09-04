@@ -361,6 +361,9 @@ Renderer::Renderer(osg::Camera* camera):
     _graphicsThreadDoesCull(true),
     _compileOnNextDraw(true),
     _serializeDraw(false),
+    _skipDraw(false),
+    _cullThrottle(1),
+    _cullFrameCounter(0),
     _initialized(false),
     _startTick(0)
 {
@@ -730,7 +733,8 @@ void Renderer::draw()
         // Camera's and the clear these references once we've completed the whole draw dispatch.
         sceneView->collateReferencesToDependentCameras();
 
-        if (_compileOnNextDraw)
+        // Skip compile when in headless mode (_skipDraw) - no GPU available
+        if (_compileOnNextDraw && !_skipDraw)
         {
             compile();
         }
@@ -775,26 +779,26 @@ void Renderer::draw()
             _querySupport->checkQuery(stats, state, _startTick);
         }
 
-        // do draw traversal
-        if (acquireGPUStats)
-        {
-            _querySupport->checkQuery(stats, state, _startTick);
-            _querySupport->beginQuery(frameNumber, state);
-        }
+        // do draw traversal (skip if _skipDraw is set - for headless server with terrain paging)
+        osg::Timer_t beforeDrawTick = osg::Timer::instance()->tick();
 
-        osg::Timer_t beforeDrawTick;
-
-
-        if (_serializeDraw)
+        if (!_skipDraw)
         {
-            OpenThreads::ScopedLock<OpenThreads::Mutex> lock(s_drawSerializerMutex);
-            beforeDrawTick = osg::Timer::instance()->tick();
-            sceneView->draw();
-        }
-        else
-        {
-            beforeDrawTick = osg::Timer::instance()->tick();
-            sceneView->draw();
+            if (acquireGPUStats)
+            {
+                _querySupport->checkQuery(stats, state, _startTick);
+                _querySupport->beginQuery(frameNumber, state);
+            }
+
+            if (_serializeDraw)
+            {
+                OpenThreads::ScopedLock<OpenThreads::Mutex> lock(s_drawSerializerMutex);
+                sceneView->draw();
+            }
+            else
+            {
+                sceneView->draw();
+            }
         }
 
         _availableQueue.add(sceneView);
@@ -864,13 +868,27 @@ void Renderer::cull_draw()
         _querySupport->checkQuery(stats, state, _startTick);
     }
 
-    // do cull traversal
+    // do cull traversal (with optional throttling for headless server)
     osg::Timer_t beforeCullTick = osg::Timer::instance()->tick();
+    osg::Timer_t afterCullTick = beforeCullTick;
 
-    sceneView->inheritCullSettings(*(sceneView->getCamera()));
-    sceneView->cull();
+    // Check cull throttle - skip cull on throttled frames
+    bool doCull = true;
+    if (_cullThrottle > 1)
+    {
+        ++_cullFrameCounter;
+        if (_cullFrameCounter % _cullThrottle != 0)
+        {
+            doCull = false;
+        }
+    }
 
-    osg::Timer_t afterCullTick = osg::Timer::instance()->tick();
+    if (doCull)
+    {
+        sceneView->inheritCullSettings(*(sceneView->getCamera()));
+        sceneView->cull();
+        afterCullTick = osg::Timer::instance()->tick();
+    }
 
     if (stats && stats->collectStats("scene"))
     {
@@ -885,35 +903,36 @@ void Renderer::cull_draw()
 #endif
 
 
-    // do draw traversal
-    if (acquireGPUStats)
+    // do draw traversal (skip if _skipDraw is set or cull was throttled)
+    osg::Timer_t beforeDrawTick = osg::Timer::instance()->tick();
+    osg::Timer_t afterDrawTick = beforeDrawTick;
+
+    if (!_skipDraw && doCull)
     {
-        _querySupport->checkQuery(stats, state, _startTick);
-        _querySupport->beginQuery(frameNumber, state);
+        if (acquireGPUStats)
+        {
+            _querySupport->checkQuery(stats, state, _startTick);
+            _querySupport->beginQuery(frameNumber, state);
+        }
+
+        if (_serializeDraw)
+        {
+            OpenThreads::ScopedLock<OpenThreads::ReentrantMutex> lock(s_drawSerializerMutex);
+            sceneView->draw();
+        }
+        else
+        {
+            sceneView->draw();
+        }
+
+        if (acquireGPUStats)
+        {
+            _querySupport->endQuery(state);
+            _querySupport->checkQuery(stats, state, _startTick);
+        }
+
+        afterDrawTick = osg::Timer::instance()->tick();
     }
-
-    osg::Timer_t beforeDrawTick;
-
-    if (_serializeDraw)
-    {
-        OpenThreads::ScopedLock<OpenThreads::ReentrantMutex> lock(s_drawSerializerMutex);
-
-        beforeDrawTick = osg::Timer::instance()->tick();
-        sceneView->draw();
-    }
-    else
-    {
-        beforeDrawTick = osg::Timer::instance()->tick();
-        sceneView->draw();
-    }
-
-    if (acquireGPUStats)
-    {
-        _querySupport->endQuery(state);
-        _querySupport->checkQuery(stats, state, _startTick);
-    }
-
-    osg::Timer_t afterDrawTick = osg::Timer::instance()->tick();
 
     if (stats && stats->collectStats("rendering"))
     {

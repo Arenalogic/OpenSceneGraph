@@ -519,6 +519,10 @@ class OSG_EXPORT GraphicsContext : public Object
 
         GLuint getDefaultFboId() const { return _defaultFboId; }
 
+        /** Skip swapBuffers for headless/offscreen rendering (e.g., pbuffer without display) */
+        void setSkipSwapBuffers(bool skip) { _skipSwapBuffers = skip; }
+        bool getSkipSwapBuffers() const { return _skipSwapBuffers; }
+
     public:
 
         virtual bool isSameKindAs(const Object* object) const { return dynamic_cast<const GraphicsContext*>(object)!=0; }
@@ -570,6 +574,8 @@ class OSG_EXPORT GraphicsContext : public Object
         Timer_t                             _lastClearTick;
 
         GLuint                              _defaultFboId;
+
+        bool                                _skipSwapBuffers;
 };
 
 //#include <osg/GLExtensions>

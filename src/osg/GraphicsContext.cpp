@@ -383,7 +383,8 @@ GraphicsContext::GraphicsContext():
     _clearMask(0),
     _threadOfLastMakeCurrent(0),
     _lastClearTick(0),
-    _defaultFboId(0)
+    _defaultFboId(0),
+    _skipSwapBuffers(false)
 {
     setThreadSafeRefUnref(true);
     _operationsBlock = new RefBlock;
@@ -396,7 +397,8 @@ GraphicsContext::GraphicsContext(const GraphicsContext&, const osg::CopyOp&):
     _clearMask(0),
     _threadOfLastMakeCurrent(0),
     _lastClearTick(0),
-    _defaultFboId(0)
+    _defaultFboId(0),
+    _skipSwapBuffers(false)
 {
     setThreadSafeRefUnref(true);
     _operationsBlock = new RefBlock;
@@ -568,6 +570,9 @@ bool GraphicsContext::releaseContext()
 
 void GraphicsContext::swapBuffers()
 {
+    // Skip buffer swap for headless/offscreen rendering (e.g., pbuffer without display)
+    if (_skipSwapBuffers) return;
+
     if (isCurrent())
     {
         swapBuffersCallbackOrImplementation();
