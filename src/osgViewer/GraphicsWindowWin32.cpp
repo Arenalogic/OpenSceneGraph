@@ -2030,7 +2030,10 @@ bool GraphicsWindowWin32::setWindowDecorationImplementation( bool decorated )
     // Change the window position and size and realize the style changes
     //
 
-    if (!::SetWindowPos(_hwnd, HWND_TOP, x, y, w, h, SWP_FRAMECHANGED | SWP_NOZORDER | SWP_SHOWWINDOW))
+    // ARENALOGIC LOCAL PATCH (truly-headless): honor Traits::hidden by using
+    // SWP_HIDEWINDOW instead of SWP_SHOWWINDOW. See GraphicsContext header.
+    const UINT _alf_visFlag = (_traits.valid() && _traits->hidden) ? SWP_HIDEWINDOW : SWP_SHOWWINDOW;
+    if (!::SetWindowPos(_hwnd, HWND_TOP, x, y, w, h, SWP_FRAMECHANGED | SWP_NOZORDER | _alf_visFlag))
     {
         reportErrorForScreen("GraphicsWindowWin32::setWindowDecoration() - Unable to set new window position and size", _traits->screenNum, ::GetLastError());
         return false;
@@ -2117,18 +2120,30 @@ bool GraphicsWindowWin32::realizeImplementation()
         // @todo: This should be controlled through a flag in the traits (topMostWindow)
         //
 
+        // ARENALOGIC LOCAL PATCH (truly-headless): honor Traits::hidden by using
+        // SWP_HIDEWINDOW instead of SWP_SHOWWINDOW so the OS window never becomes
+        // visible. See GraphicsContext header. Without this the window flashes
+        // visible at realize time even if the caller later SW_HIDEs it.
+        const UINT _alf_visFlag = (_traits.valid() && _traits->hidden) ? SWP_HIDEWINDOW : SWP_SHOWWINDOW;
         if (!::SetWindowPos(_hwnd,
                             HWND_TOP,
                             _windowOriginXToRealize,
                             _windowOriginYToRealize,
                             _windowWidthToRealize,
                             _windowHeightToRealize,
-                            SWP_SHOWWINDOW))
+                            _alf_visFlag))
         {
             reportErrorForScreen("GraphicsWindowWin32::realizeImplementation() - Unable to show window", _traits->screenNum, ::GetLastError());
             return false;
         }
 
+        // Skip UpdateWindow when hidden — there is nothing visible to paint and
+        // it would force a WM_PAINT round-trip we don't need.
+        if (_traits.valid() && _traits->hidden)
+        {
+            // no-op: window stays hidden
+        }
+        else
         if (!::UpdateWindow(_hwnd))
         {
             reportErrorForScreen("GraphicsWindowWin32::realizeImplementation() - Unable to update window", _traits->screenNum, ::GetLastError());
@@ -2331,7 +2346,9 @@ bool GraphicsWindowWin32::setWindowRectangleImplementation(int x, int y, int wid
         return false;
     }
 
-    if (!::SetWindowPos(_hwnd, HWND_TOP, wx, wy, ww, wh, SWP_SHOWWINDOW | SWP_FRAMECHANGED))
+    // ARENALOGIC LOCAL PATCH (truly-headless): honor Traits::hidden.
+    const UINT _alf_visFlag = (_traits.valid() && _traits->hidden) ? SWP_HIDEWINDOW : SWP_SHOWWINDOW;
+    if (!::SetWindowPos(_hwnd, HWND_TOP, wx, wy, ww, wh, _alf_visFlag | SWP_FRAMECHANGED))
     {
         reportErrorForScreen("GraphicsWindowWin32::setWindowRectangleImplementation() - Unable to set new window position and size", _traits->screenNum, ::GetLastError());
         return false;

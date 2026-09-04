@@ -217,6 +217,7 @@ GraphicsContext::Traits::Traits(DisplaySettings* ds):
             height(0),
             windowDecoration(false),
             supportsResize(true),
+            hidden(false),    // ARENALOGIC LOCAL PATCH (see GraphicsContext header)
             red(8),
             blue(8),
             green(8),

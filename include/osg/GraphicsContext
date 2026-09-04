@@ -87,6 +87,14 @@ class OSG_EXPORT GraphicsContext : public Object
             bool        windowDecoration;
             bool        supportsResize;
 
+            // ARENALOGIC LOCAL PATCH (truly-headless actsrv):
+            // When true, the platform-specific GraphicsWindow implementation must
+            // create the OS window in hidden state and NEVER call ShowWindow/
+            // SWP_SHOWWINDOW. Used to keep delta3d-based servers fully invisible.
+            // Currently honored by GraphicsWindowWin32 (see realizeImplementation,
+            // setWindowRectangleImplementation, setWindowDecorationImplementation).
+            bool        hidden;
+
             // buffer depths, 0 equals off.
             unsigned int red;
             unsigned int blue;
