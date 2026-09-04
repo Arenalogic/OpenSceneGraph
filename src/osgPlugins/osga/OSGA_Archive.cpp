@@ -68,6 +68,11 @@ inline std::streampos STREAM_POS( const OSGA_Archive::pos_type pos )
     return std::streampos( std::mbstate_t(), pos );
 }
 
+// _FPOSOFF was removed from the Universal CRT; with VS2017 15.8+ fpos_t is a
+// plain __int64 holding the absolute byte offset, so the macro is a cast.
+#ifndef _FPOSOFF
+#define _FPOSOFF(fp) ((long long)(fp))
+#endif
 inline OSGA_Archive::pos_type ARCHIVE_POS( const std::streampos & pos )
 {
 #if (defined(_CPPLIB_VER) && defined(_MSC_VER) && _MSC_VER > 1914)   // VC++ 2017 version 15.8 or later
@@ -77,7 +82,7 @@ inline OSGA_Archive::pos_type ARCHIVE_POS( const std::streampos & pos )
 #else // older Dinkumware (eg: one included in Win Server 2003 Platform SDK )
 	fpos_t position = pos.get_fpos_t();
 #endif
-    std::streamoff offset = pos.operator std::streamoff( ) - _FPOSOFF( position );
+    std::streamoff offset = 0;
 
     return OSGA_Archive::pos_type( position + offset );
 }
