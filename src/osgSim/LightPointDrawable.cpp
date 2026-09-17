@@ -116,8 +116,16 @@ void LightPointDrawable::drawImplementation(osg::RenderInfo& renderInfo) const
         if (!lpl.empty())
         {
             glPointSize(pointsize);
-            //glInterleavedArrays(GL_C4UB_V3F,0,&lpl.front());
-            state.setInterleavedArrays(GL_C4UB_V3F,0,&lpl.front());
+            // Tracked client arrays instead of glInterleavedArrays: the interleaved call
+            // enables the fixed-function vertex/colour client state behind
+            // VertexArrayState's back, so disableAllVertexArrays() (lazy, per tracked
+            // dispatcher) leaves them enabled with a pointer into this per-frame list.
+            // Under vertex-attribute aliasing those slots are generic attributes 0 and 3;
+            // the next drawable whose program reads the colour attribute then samples
+            // the stale list and the driver faults.
+            state.unbindVertexBufferObject();
+            state.setColorPointer(4, GL_UNSIGNED_BYTE, sizeof(ColorPosition), &lpl.front().first, GL_TRUE);
+            state.setVertexPointer(3, GL_FLOAT, sizeof(ColorPosition), lpl.front().second.ptr(), GL_FALSE);
             glDrawArrays(GL_POINTS,0,lpl.size());
         }
     }
@@ -137,8 +145,16 @@ void LightPointDrawable::drawImplementation(osg::RenderInfo& renderInfo) const
         if (!lpl.empty())
         {
             glPointSize(pointsize);
-            //glInterleavedArrays(GL_C4UB_V3F,0,&lpl.front());
-            state.setInterleavedArrays(GL_C4UB_V3F,0,&lpl.front());
+            // Tracked client arrays instead of glInterleavedArrays: the interleaved call
+            // enables the fixed-function vertex/colour client state behind
+            // VertexArrayState's back, so disableAllVertexArrays() (lazy, per tracked
+            // dispatcher) leaves them enabled with a pointer into this per-frame list.
+            // Under vertex-attribute aliasing those slots are generic attributes 0 and 3;
+            // the next drawable whose program reads the colour attribute then samples
+            // the stale list and the driver faults.
+            state.unbindVertexBufferObject();
+            state.setColorPointer(4, GL_UNSIGNED_BYTE, sizeof(ColorPosition), &lpl.front().first, GL_TRUE);
+            state.setVertexPointer(3, GL_FLOAT, sizeof(ColorPosition), lpl.front().second.ptr(), GL_FALSE);
             glDrawArrays(GL_POINTS,0,lpl.size());
         }
     }
@@ -156,8 +172,16 @@ void LightPointDrawable::drawImplementation(osg::RenderInfo& renderInfo) const
         {
             //state.applyMode(GL_POINT_SMOOTH,pointsize!=1);
             glPointSize(pointsize);
-            //glInterleavedArrays(GL_C4UB_V3F,0,&lpl.front());
-            state.setInterleavedArrays(GL_C4UB_V3F,0,&lpl.front());
+            // Tracked client arrays instead of glInterleavedArrays: the interleaved call
+            // enables the fixed-function vertex/colour client state behind
+            // VertexArrayState's back, so disableAllVertexArrays() (lazy, per tracked
+            // dispatcher) leaves them enabled with a pointer into this per-frame list.
+            // Under vertex-attribute aliasing those slots are generic attributes 0 and 3;
+            // the next drawable whose program reads the colour attribute then samples
+            // the stale list and the driver faults.
+            state.unbindVertexBufferObject();
+            state.setColorPointer(4, GL_UNSIGNED_BYTE, sizeof(ColorPosition), &lpl.front().first, GL_TRUE);
+            state.setVertexPointer(3, GL_FLOAT, sizeof(ColorPosition), lpl.front().second.ptr(), GL_FALSE);
             glDrawArrays(GL_POINTS,0,lpl.size());
         }
     }
