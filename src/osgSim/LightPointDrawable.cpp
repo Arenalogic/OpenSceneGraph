@@ -92,6 +92,16 @@ void LightPointDrawable::drawImplementation(osg::RenderInfo& renderInfo) const
 #if !defined(OSG_GLES1_AVAILABLE) && !defined(OSG_GLES2_AVAILABLE) && !defined(OSG_GLES3_AVAILABLE) && !defined(OSG_GL3_AVAILABLE)
     osg::State& state = *renderInfo.getState();
 
+    // Disable the vertex attributes the previous drawable left enabled (lazy state;
+    // osg::Geometry does the same) before the client-array draws below. A client-array
+    // glDrawArrays makes the driver read every enabled array: an attribute whose VBO has
+    // since been deleted (a paged-out terrain tile's array) keeps its offset as a client
+    // pointer and faults. It also resets the dispatchers' array bookkeeping, without which
+    // the pointer form of setVertexPointer disables attribute 0 instead of setting it when
+    // the previous drawable used a vertex array, and the first non-empty bucket draws nothing.
+    state.lazyDisablingOfVertexAttributes();
+    state.applyDisablingOfVertexAttributes();
+
     state.applyMode(GL_POINT_SMOOTH,true);
     state.applyMode(GL_BLEND,true);
     state.applyMode(GL_LIGHTING,false);
