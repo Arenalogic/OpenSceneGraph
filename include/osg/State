@@ -248,6 +248,20 @@ class OSG_EXPORT State : public Referenced
         osg::Uniform* getModelViewProjectionMatrixUniform() { return _modelViewProjectionMatrixUniform.get(); }
         osg::Uniform* getNormalMatrixUniform() { return _normalMatrixUniform.get(); }
 
+        /** Set whether ClipPlane also passes its plane equation to shaders, in eye coordinates, as element ClipPlane::getClipPlaneNum()
+          * of the osg_ClipPlane[8] vec4 uniform array, so that shaders can write gl_ClipDistance. On by default when fixed function is
+          * not available, off otherwise. Where the context supports fixed function, glClipPlane is applied as well.*/
+        void setUseClipPlaneUniforms(bool flag) { _useClipPlaneUniforms = flag; }
+        bool getUseClipPlaneUniforms() const { return _useClipPlaneUniforms; }
+
+        /** Get the osg_ClipPlane uniform array.*/
+        osg::Uniform* getClipPlaneUniform() { return _clipPlaneUniform.get(); }
+
+        /** Apply clip plane planeNum, given in the coordinate frame of the current modelview matrix: store it in eye coordinates in the
+          * osg_ClipPlane uniform, upload it to the current program at once, and call glClipPlane where the context supports fixed function.
+          * Called by ClipPlane::apply(State&) when getUseClipPlaneUniforms() is true.*/
+        void applyClipPlane(unsigned int planeNum, const Vec4d& plane);
+
 
         Polytope getViewFrustum() const;
 
@@ -798,6 +812,9 @@ class OSG_EXPORT State : public Referenced
             if (_lastAppliedProgramObject!=program)
             {
                 _lastAppliedProgramObject = program;
+
+                // the current clip planes reach every program made current, not only the one bound when the planes were applied
+                if (_useClipPlaneUniforms && program) program->apply(*_clipPlaneUniform);
             }
         }
         inline const Program::PerContextProgram* getLastAppliedProgramObject() const { return _lastAppliedProgramObject; }
@@ -1110,6 +1127,10 @@ class OSG_EXPORT State : public Referenced
         ref_ptr<Uniform>            _projectionMatrixUniform;
         ref_ptr<Uniform>            _modelViewProjectionMatrixUniform;
         ref_ptr<Uniform>            _normalMatrixUniform;
+
+        bool                        _useClipPlaneUniforms;
+        ref_ptr<Uniform>            _clipPlaneUniform;
+        bool                        _clipPlaneFixedFunctionSupported;
 
         Matrix                      _initialInverseViewMatrix;
 

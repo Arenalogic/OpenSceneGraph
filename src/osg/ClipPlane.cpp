@@ -12,6 +12,7 @@
 */
 #include <osg/ClipPlane>
 #include <osg/StateSet>
+#include <osg/State>
 #include <osg/Notify>
 
 using namespace osg;
@@ -41,8 +42,14 @@ unsigned int ClipPlane::getClipPlaneNum() const
     return _clipPlaneNum;
 }
 
-void ClipPlane::apply(State&) const
+void ClipPlane::apply(State& state) const
 {
+    if (state.getUseClipPlaneUniforms())
+    {
+        state.applyClipPlane(_clipPlaneNum, _clipPlane);
+        return;
+    }
+
 #if defined(OSG_GL_FIXED_FUNCTION_AVAILABLE) && !defined(OSG_GLES1_AVAILABLE)
     glClipPlane((GLenum)(GL_CLIP_PLANE0+_clipPlaneNum),_clipPlane.ptr());
 #else

@@ -32,6 +32,22 @@
 #define GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS 0x8B4D
 #endif
 
+#ifndef GL_CONTEXT_FLAGS
+#define GL_CONTEXT_FLAGS 0x821E
+#endif
+
+#ifndef GL_CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT
+#define GL_CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT 0x00000001
+#endif
+
+#ifndef GL_CONTEXT_PROFILE_MASK
+#define GL_CONTEXT_PROFILE_MASK 0x9126
+#endif
+
+#ifndef GL_CONTEXT_CORE_PROFILE_BIT
+#define GL_CONTEXT_CORE_PROFILE_BIT 0x00000001
+#endif
+
 #ifndef GL_MAX_TEXTURE_UNITS
 #define GL_MAX_TEXTURE_UNITS 0x84E2
 #endif
@@ -64,15 +80,24 @@ State::State():
     #if !defined(OSG_GL_FIXED_FUNCTION_AVAILABLE)
         _useModelViewAndProjectionUniforms = true;
         _useVertexAttributeAliasing = true;
+        _useClipPlaneUniforms = true;
     #else
         _useModelViewAndProjectionUniforms = false;
         _useVertexAttributeAliasing = false;
+        _useClipPlaneUniforms = false;
+    #endif
+
+    #if defined(OSG_GL_FIXED_FUNCTION_AVAILABLE) && !defined(OSG_GLES1_AVAILABLE)
+        _clipPlaneFixedFunctionSupported = true;
+    #else
+        _clipPlaneFixedFunctionSupported = false;
     #endif
 
     _modelViewMatrixUniform = new Uniform(Uniform::FLOAT_MAT4,"osg_ModelViewMatrix");
     _projectionMatrixUniform = new Uniform(Uniform::FLOAT_MAT4,"osg_ProjectionMatrix");
     _modelViewProjectionMatrixUniform = new Uniform(Uniform::FLOAT_MAT4,"osg_ModelViewProjectionMatrix");
     _normalMatrixUniform = new Uniform(Uniform::FLOAT_MAT3,"osg_NormalMatrix");
+    _clipPlaneUniform = new Uniform(Uniform::FLOAT_VEC4,"osg_ClipPlane",8);
 
     resetVertexAttributeAlias();
 
@@ -198,6 +223,22 @@ void State::initializeExtensionProcs()
     _isFogCoordSupported = osg::isGLExtensionSupported(_contextID,"GL_EXT_fog_coord");
     _isVertexBufferObjectSupported = OSG_GLES2_FEATURES || OSG_GLES3_FEATURES || OSG_GL3_FEATURES || osg::isGLExtensionSupported(_contextID,"GL_ARB_vertex_buffer_object");
     _isVertexArrayObjectSupported = _glExtensions->isVAOSupported;
+
+#if defined(OSG_GL_FIXED_FUNCTION_AVAILABLE) && !defined(OSG_GLES1_AVAILABLE)
+    // a core profile context (or a forward compatible 3.0/3.1 context) has no glClipPlane, even in a build with fixed function
+    if (_glExtensions->glVersion>=3.2f)
+    {
+        GLint profileMask = 0;
+        glGetIntegerv(GL_CONTEXT_PROFILE_MASK, &profileMask);
+        _clipPlaneFixedFunctionSupported = (profileMask & GL_CONTEXT_CORE_PROFILE_BIT)==0;
+    }
+    else if (_glExtensions->glVersion>=3.0f)
+    {
+        GLint contextFlags = 0;
+        glGetIntegerv(GL_CONTEXT_FLAGS, &contextFlags);
+        _clipPlaneFixedFunctionSupported = (contextFlags & GL_CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT)==0;
+    }
+#endif
 
     const DisplaySettings* ds = getDisplaySettings() ? getDisplaySettings() : osg::DisplaySettings::instance().get();
 
@@ -1218,6 +1259,27 @@ bool State::checkGLErrors(const StateAttribute* attribute) const
     return false;
 }
 
+
+void State::applyClipPlane(unsigned int planeNum, const Vec4d& plane)
+{
+#if defined(OSG_GL_FIXED_FUNCTION_AVAILABLE) && !defined(OSG_GLES1_AVAILABLE)
+    if (_clipPlaneFixedFunctionSupported) glClipPlane((GLenum)(GL_CLIP_PLANE0+planeNum), plane.ptr());
+#endif
+
+    if (planeNum>=_clipPlaneUniform->getNumElements())
+    {
+        OSG_NOTICE<<"Warning: State::applyClipPlane("<<planeNum<<") osg_ClipPlane has "<<_clipPlaneUniform->getNumElements()<<" elements."<<std::endl;
+        return;
+    }
+
+    // as glClipPlane: the plane is transformed into eye coordinates by the inverse of the current modelview matrix
+    Matrixd inverseModelView;
+    inverseModelView.invert(*_modelView);
+    _clipPlaneUniform->setElement(planeNum, Vec4f(inverseModelView * plane));
+
+    // upload at once: the same program may be current across render stages that apply different planes
+    if (_lastAppliedProgramObject) _lastAppliedProgramObject->apply(*_clipPlaneUniform);
+}
 
 void State::applyModelViewAndProjectionUniformsIfRequired()
 {
