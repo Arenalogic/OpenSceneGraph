@@ -268,6 +268,18 @@ public:
 
     ShaderTechnique getShaderTechnique() const { return _shaderTechnique; }
 
+    /** Set whether glyph textures use the core profile formats GL_R8 (greyscale, coverage in red) and GL_RG8 (signed distance field,
+      * coverage in red, distance in green) instead of GL_ALPHA and GL_LUMINANCE_ALPHA. Process wide, set it before any font is loaded.
+      * Off by default in builds with GL1 or GL2, always on in GL3 only builds. Text then adds the GLYPH_CHANNEL_R define, so that
+      * shaders read coverage from the right channel. The fixed function text path keeps GL_ALPHA.*/
+    static void setUseCoreFormats(bool useCoreFormats);
+
+    /** Get whether glyph textures use the core profile formats GL_R8 and GL_RG8.*/
+    static bool getUseCoreFormats();
+
+    /** Return the channel coverage is read from in this glyph texture: GL_RED for the core profile formats, GL_ALPHA otherwise.*/
+    GLenum getCoverageChannel() const;
+
 
     int getEffectMargin(const Glyph* glyph);
     int getTexelMargin(const Glyph* glyph);

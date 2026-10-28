@@ -28,18 +28,30 @@
 using namespace osgText;
 using namespace std;
 
-// GL_ALPHA and GL_LUMINANCE_ALPHA are deprecated in GL3/GL4 core profile, use GL_RED & GL_RB in this case.
+// GL_ALPHA and GL_LUMINANCE_ALPHA are deprecated in GL3/GL4 core profile, use GL_RED & GL_RG in this case,
+// and when GlyphTexture::setUseCoreFormats(true) asks for them in other builds.
 #if defined(OSG_GL3_AVAILABLE) && !defined(OSG_GL2_AVAILABLE) && !defined(OSG_GL1_AVAILABLE)
-#define OSGTEXT_GLYPH_ALPHA_FORMAT GL_RED
-#define OSGTEXT_GLYPH_ALPHA_INTERNALFORMAT GL_R8
-#define OSGTEXT_GLYPH_SDF_FORMAT GL_RG
-#define OSGTEXT_GLYPH_SDF_INTERNALFORMAT GL_RG8
-#else
-#define OSGTEXT_GLYPH_ALPHA_FORMAT GL_ALPHA
-#define OSGTEXT_GLYPH_ALPHA_INTERNALFORMAT GL_ALPHA
-#define OSGTEXT_GLYPH_SDF_FORMAT GL_LUMINANCE_ALPHA
-#define OSGTEXT_GLYPH_SDF_INTERNALFORMAT GL_LUMINANCE_ALPHA
+#define OSGTEXT_GLYPH_CORE_FORMATS_ONLY
 #endif
+
+static bool s_useCoreFormats = false;
+
+// the fixed function text path reads coverage from alpha with GL_MODULATE, so its glyph textures keep GL_ALPHA
+static bool useCoreFormats(ShaderTechnique technique)
+{
+#if defined(OSGTEXT_GLYPH_CORE_FORMATS_ONLY)
+    (void)technique;
+    return true;
+#else
+    if (!s_useCoreFormats) return false;
+
+    #if defined(OSG_GL_FIXED_FUNCTION_AVAILABLE)
+    if (technique==NO_TEXT_SHADER && osg::DisplaySettings::instance()->getShaderHint()==osg::DisplaySettings::SHADER_NONE) return false;
+    #endif
+
+    return true;
+#endif
+}
 
 
 #if 0
@@ -67,6 +79,26 @@ GlyphTexture::GlyphTexture():
 
 GlyphTexture::~GlyphTexture()
 {
+}
+
+void GlyphTexture::setUseCoreFormats(bool useCoreFormats)
+{
+    s_useCoreFormats = useCoreFormats;
+}
+
+bool GlyphTexture::getUseCoreFormats()
+{
+#if defined(OSGTEXT_GLYPH_CORE_FORMATS_ONLY)
+    return true;
+#else
+    return s_useCoreFormats;
+#endif
+}
+
+GLenum GlyphTexture::getCoverageChannel() const
+{
+    bool coreFormats = _image.valid() ? (_image->getPixelFormat()==GL_RED || _image->getPixelFormat()==GL_RG) : useCoreFormats(_shaderTechnique);
+    return coreFormats ? GL_RED : GL_ALPHA;
 }
 
 // return -1 if *this < *rhs, 0 if *this==*rhs, 1 if *this>*rhs.
@@ -416,8 +448,19 @@ osg::Image* GlyphTexture::createImage()
 
         _image = new osg::Image;
 
-        GLenum imageFormat = (_shaderTechnique<=GREYSCALE) ? OSGTEXT_GLYPH_ALPHA_FORMAT : OSGTEXT_GLYPH_SDF_FORMAT;
-        GLenum internalFormat = (_shaderTechnique<=GREYSCALE) ? OSGTEXT_GLYPH_ALPHA_INTERNALFORMAT : OSGTEXT_GLYPH_SDF_INTERNALFORMAT;
+        // the core formats hold the same bytes: greyscale coverage in red, signed distance field coverage in red and distance in green
+        bool coreFormats = useCoreFormats(_shaderTechnique);
+        GLenum imageFormat, internalFormat;
+        if (_shaderTechnique<=GREYSCALE)
+        {
+            imageFormat = coreFormats ? GL_RED : GL_ALPHA;
+            internalFormat = coreFormats ? GL_R8 : GL_ALPHA;
+        }
+        else
+        {
+            imageFormat = coreFormats ? GL_RG : GL_LUMINANCE_ALPHA;
+            internalFormat = coreFormats ? GL_RG8 : GL_LUMINANCE_ALPHA;
+        }
 
         _image->allocateImage(getTextureWidth(), getTextureHeight(), 1, imageFormat, GL_UNSIGNED_BYTE);
         _image->setInternalTextureFormat(internalFormat);

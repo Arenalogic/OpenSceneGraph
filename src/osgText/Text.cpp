@@ -161,6 +161,12 @@ osg::StateSet* Text::createStateSet()
         defineList["SIGNED_DISTANCE_FIELD"] = osg::StateSet::DefinePair("1", osg::StateAttribute::ON);
     }
 
+    // glyph coverage is in the red channel of core format glyph textures, see GlyphTexture::setUseCoreFormats()
+    if (GlyphTexture::getUseCoreFormats())
+    {
+        defineList["GLYPH_CHANNEL_R"] = osg::StateSet::DefinePair("1", osg::StateAttribute::ON);
+    }
+
 #if 0
     OSG_NOTICE<<"Text::createStateSet() defines:"<<defineList.size()<<std::endl;
     for(osg::StateSet::DefineList::iterator itr = defineList.begin();
@@ -210,7 +216,9 @@ osg::StateSet* Text::createStateSet()
     statesets.push_back(stateset.get());
 
     stateset->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+#if defined(OSG_GL_FIXED_FUNCTION_AVAILABLE)
     stateset->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+#endif
     stateset->setMode(GL_BLEND, osg::StateAttribute::ON);
 
 

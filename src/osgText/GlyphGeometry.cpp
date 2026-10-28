@@ -1447,7 +1447,9 @@ OSGTEXT_EXPORT osg::Geometry* computeShellGeometry(osg::Geometry* glyphGeometry,
 
     osg::StateSet* stateset = text_geometry->getOrCreateStateSet();
     stateset->setMode(GL_BLEND, osg::StateAttribute::ON);
+#if defined(OSG_GL_FIXED_FUNCTION_AVAILABLE)
     stateset->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+#endif
     stateset->setAttributeAndModes(new osg::CullFace, osg::StateAttribute::ON);
     //stateset->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
     stateset->setRenderBinDetails(11, "SORT_FRONT_TO_BACK");
