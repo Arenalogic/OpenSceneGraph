@@ -144,6 +144,17 @@ DECLARE_HANDLE(HPBUFFERARB);
 #define WGL_TEXTURE_RECTANGLE_NV       0x20A2
 #endif
 
+#ifndef WGL_ARB_create_context
+#define WGL_ARB_create_context 1
+#define WGL_CONTEXT_MAJOR_VERSION_ARB       0x2091
+#define WGL_CONTEXT_MINOR_VERSION_ARB       0x2092
+#define WGL_CONTEXT_FLAGS_ARB               0x2094
+#endif
+
+#ifndef WGL_CONTEXT_PROFILE_MASK_ARB
+#define WGL_CONTEXT_PROFILE_MASK_ARB        0x9126
+#endif
+
 #ifndef WGL_SAMPLE_BUFFERS_ARB
 #define        WGL_SAMPLE_BUFFERS_ARB         0x2041
 #endif
@@ -183,6 +194,76 @@ static std::string sysError()
     return msgResult.str();
 }
 
+
+// Return true if the traits explicitly request a context version (3.0 or later), a profile or context flags.
+// Explicit requests are created with wglCreateContextAttribsARB, share through its hShareContext parameter,
+// and fail rather than fall back to a legacy wglCreateContext context.
+static bool isExplicitContextRequest(const osg::GraphicsContext::Traits* traits)
+{
+    if (!traits) return false;
+
+    unsigned int major = 1, minor = 0;
+    if (traits->getContextVersion(major, minor) && major>=3) return true;
+
+    return traits->glContextFlags!=0 || traits->glContextProfileMask!=0;
+}
+
+// Create the context of an explicit request on hdc, a context must be current to look up wglCreateContextAttribsARB.
+static HGLRC createContextAttribs(HDC hdc, const osg::GraphicsContext::Traits* traits)
+{
+    typedef HGLRC (WINAPI * WGLCreateContextAttribsProc) (HDC, HGLRC, const int *);
+
+    WGLCreateContextAttribsProc wglCreateContextAttribsARB = (WGLCreateContextAttribsProc)wglGetProcAddress("wglCreateContextAttribsARB");
+    if (!wglCreateContextAttribsARB)
+    {
+        OSG_WARN << "Error: PixelBufferWin32, wglCreateContextAttribsARB not available." << std::endl;
+        return 0;
+    }
+
+    HGLRC shareContext = 0;
+    if (traits->sharedContext.valid())
+    {
+        osgViewer::GraphicsHandleWin32* graphicsHandleWin32 = dynamic_cast<osgViewer::GraphicsHandleWin32*>(traits->sharedContext.get());
+        shareContext = graphicsHandleWin32 ? graphicsHandleWin32->getWGLContext() : 0;
+        if (!shareContext)
+        {
+            OSG_WARN << "Error: PixelBufferWin32, the shared context is not a realized Win32 OpenGL context." << std::endl;
+            return 0;
+        }
+    }
+
+    unsigned int major = 1, minor = 0;
+    traits->getContextVersion(major, minor);
+
+    std::vector<int> attribs;
+    attribs.push_back(WGL_CONTEXT_MAJOR_VERSION_ARB);
+    attribs.push_back(major);
+    attribs.push_back(WGL_CONTEXT_MINOR_VERSION_ARB);
+    attribs.push_back(minor);
+    if (traits->glContextFlags != 0)
+    {
+        attribs.push_back(WGL_CONTEXT_FLAGS_ARB);
+        attribs.push_back(traits->glContextFlags);
+    }
+    if (traits->glContextProfileMask != 0)
+    {
+        attribs.push_back(WGL_CONTEXT_PROFILE_MASK_ARB);
+        attribs.push_back(traits->glContextProfileMask);
+    }
+    attribs.push_back(0);
+
+    HGLRC context = wglCreateContextAttribsARB(hdc, shareContext, &attribs[0]);
+    if (!context)
+    {
+        DWORD error = GetLastError();
+        OSG_WARN << "Error: PixelBufferWin32, wglCreateContextAttribsARB failed (error 0x" << std::hex << error
+                 << ") for version " << traits->glContextVersion
+                 << ", profile mask 0x" << traits->glContextProfileMask
+                 << ", flags 0x" << traits->glContextFlags << std::dec
+                 << "; no fallback to a legacy context." << std::endl;
+    }
+    return context;
+}
 
     static int __tempwnd_id = 0;
 class TemporaryWindow: public osg::Referenced
@@ -463,7 +544,7 @@ PixelBufferWin32::PixelBufferWin32( osg::GraphicsContext::Traits* traits ):
         setState( new osg::State );
         getState()->setGraphicsContext( this );
 
-        if (_traits.valid() && _traits->sharedContext.valid() )
+        if (_traits.valid() && _traits->sharedContext.valid() && !_traits->uniqueContextId)
         {
             getState()->setContextID( _traits->sharedContext->getState()->getContextID() );
             incrementContextIDUsageCount( getState()->getContextID() );
@@ -619,11 +700,27 @@ void PixelBufferWin32::init()
         return;
     }
 
-    _hglrc = wglCreateContext(_hdc);
-    if (!_hglrc)
+    if (isExplicitContextRequest(_traits.get()))
     {
-        OSG_NOTICE << "PixelBufferWin32::init, wglCreateContext error: " << sysError() << std::endl;
-        return;
+        // the temporary window's context is current, as wglGetProcAddress requires
+        _hglrc = createContextAttribs(_hdc, _traits.get());
+        if (!_hglrc)
+        {
+            wgle->wglReleasePbufferDCARB(reinterpret_cast<HPBUFFERARB>(_hwnd), _hdc);
+            wgle->wglDestroyPbufferARB(reinterpret_cast<HPBUFFERARB>(_hwnd));
+            _hdc = 0;
+            _hwnd = 0;
+            return;
+        }
+    }
+    else
+    {
+        _hglrc = wglCreateContext(_hdc);
+        if (!_hglrc)
+        {
+            OSG_NOTICE << "PixelBufferWin32::init, wglCreateContext error: " << sysError() << std::endl;
+            return;
+        }
     }
 
     int iWidth = 0;
@@ -658,7 +755,8 @@ bool PixelBufferWin32::realizeImplementation()
 
     if (!_initialized) return false;
 
-    if ( _traits->sharedContext.valid() )
+    // explicit context requests have already shared at creation
+    if ( _traits->sharedContext.valid() && !isExplicitContextRequest(_traits.get()) )
     {
         GraphicsHandleWin32* graphicsHandleWin32 = dynamic_cast<GraphicsHandleWin32*>(_traits->sharedContext.get());
         if (graphicsHandleWin32)

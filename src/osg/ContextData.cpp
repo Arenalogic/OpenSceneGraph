@@ -305,7 +305,18 @@ GraphicsContext* ContextData::getOrCreateCompileContext(unsigned int contextID)
     traits->sharedContext = src_gc;
     traits->pbuffer = true;
 
+    // the compile context is created with the same context request as its parent
+    traits->glContextVersion = src_traits->glContextVersion;
+    traits->glContextFlags = src_traits->glContextFlags;
+    traits->glContextProfileMask = src_traits->glContextProfileMask;
+
     osg::ref_ptr<osg::GraphicsContext> gc = osg::GraphicsContext::createGraphicsContext(traits);
+    if (gc.valid())
+    {
+        gc->setRealizeOperation(src_gc->getRealizeOperation());
+        gc->setReleaseOperation(src_gc->getReleaseOperation());
+    }
+
     if (gc.valid() && gc->realize())
     {
         OpenThreads::ScopedLock<OpenThreads::Mutex> lock(s_contextIDMapMutex);

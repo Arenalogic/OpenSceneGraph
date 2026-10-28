@@ -244,6 +244,7 @@ GraphicsContext::Traits::Traits(DisplaySettings* ds):
             glContextFlags(0),
             glContextProfileMask(0),
             sharedContext(0),
+            uniqueContextId(false),
             setInheritedWindowPixelFormat(false),
             overrideRedirect(false),
             swapMethod( DisplaySettings::SWAP_DEFAULT )
@@ -384,7 +385,9 @@ GraphicsContext::GraphicsContext():
     _threadOfLastMakeCurrent(0),
     _lastClearTick(0),
     _defaultFboId(0),
-    _skipSwapBuffers(false)
+    _skipSwapBuffers(false),
+    _releaseOperationPending(false),
+    _releaseContextLost(false)
 {
     setThreadSafeRefUnref(true);
     _operationsBlock = new RefBlock;
@@ -398,7 +401,9 @@ GraphicsContext::GraphicsContext(const GraphicsContext&, const osg::CopyOp&):
     _threadOfLastMakeCurrent(0),
     _lastClearTick(0),
     _defaultFboId(0),
-    _skipSwapBuffers(false)
+    _skipSwapBuffers(false),
+    _releaseOperationPending(false),
+    _releaseContextLost(false)
 {
     setThreadSafeRefUnref(true);
     _operationsBlock = new RefBlock;
@@ -427,10 +432,61 @@ void GraphicsContext::clear()
     glClear( _clearMask );
 }
 
+static osg::ref_ptr<Operation>& s_defaultRealizeOperation()
+{
+    static osg::ref_ptr<Operation> s_operation;
+    return s_operation;
+}
+
+static osg::ref_ptr<Operation>& s_defaultReleaseOperation()
+{
+    static osg::ref_ptr<Operation> s_operation;
+    return s_operation;
+}
+
+void GraphicsContext::setDefaultRealizeOperation(Operation* op)
+{
+    s_defaultRealizeOperation() = op;
+}
+
+Operation* GraphicsContext::getDefaultRealizeOperation()
+{
+    return s_defaultRealizeOperation().get();
+}
+
+void GraphicsContext::setDefaultReleaseOperation(Operation* op)
+{
+    s_defaultReleaseOperation() = op;
+}
+
+Operation* GraphicsContext::getDefaultReleaseOperation()
+{
+    return s_defaultReleaseOperation().get();
+}
+
 bool GraphicsContext::realize()
 {
     if (realizeImplementation())
     {
+        if (!_releaseOperationPending)
+        {
+            Operation* realizeOperation = _realizeOperation.valid() ? _realizeOperation.get() : getDefaultRealizeOperation();
+            if (realizeOperation)
+            {
+                if (!makeCurrent())
+                {
+                    OSG_WARN<<"Warning: GraphicsContext::realize() unable to make the context current to run its realize operation."<<std::endl;
+                    return false;
+                }
+
+                (*realizeOperation)(this);
+
+                releaseContext();
+            }
+
+            _releaseOperationPending = true;
+        }
+
         return true;
     }
     else
@@ -445,6 +501,34 @@ void GraphicsContext::close(bool callCloseImplementation)
 
     // switch off the graphics thread...
     setGraphicsThread(0);
+
+    // run the release operation once for the realize() it pairs with, before any GL object is flushed
+    if (_releaseOperationPending)
+    {
+        _releaseOperationPending = false;
+
+        Operation* releaseOperation = _releaseOperation.valid() ? _releaseOperation.get() : getDefaultReleaseOperation();
+        if (releaseOperation)
+        {
+            bool current = callCloseImplementation && _state.valid() && isRealized() && makeCurrent();
+
+            struct ContextLostScope
+            {
+                ContextLostScope(bool& flag, bool value) : _flag(flag) { _flag = value; }
+                ~ContextLostScope() { _flag = false; }
+                bool& _flag;
+            } contextLostScope(_releaseContextLost, !current);
+
+            if (!current)
+            {
+                OSG_INFO<<"GraphicsContext::close() running the release operation without a current context."<<std::endl;
+            }
+
+            (*releaseOperation)(this);
+
+            if (current) releaseContext();
+        }
+    }
 
 
     bool sharedContextExists = false;

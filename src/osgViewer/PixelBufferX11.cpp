@@ -24,7 +24,102 @@
 
 #include <unistd.h>
 
+#ifndef GLX_ARB_create_context
+#define GLX_CONTEXT_MAJOR_VERSION_ARB       0x2091
+#define GLX_CONTEXT_MINOR_VERSION_ARB       0x2092
+#define GLX_CONTEXT_FLAGS_ARB               0x2094
+#endif
+
+#ifndef GLX_CONTEXT_PROFILE_MASK_ARB
+#define GLX_CONTEXT_PROFILE_MASK_ARB        0x9126
+#endif
+
 using namespace osgViewer;
+
+// Return true if the traits explicitly request a context version (3.0 or later), a profile or context flags.
+// Explicit requests are created with glXCreateContextAttribsARB and fail rather than fall back to glXCreateContext.
+static bool isExplicitContextRequest(const osg::GraphicsContext::Traits* traits)
+{
+    if (!traits) return false;
+
+    unsigned int major = 1, minor = 0;
+    if (traits->getContextVersion(major, minor) && major>=3) return true;
+
+    return traits->glContextFlags!=0 || traits->glContextProfileMask!=0;
+}
+
+#ifdef GLX_VERSION_1_3
+// Create the context of an explicit request with the GLXFBConfig of visualInfo, the config the pbuffer is created with.
+static GLXContext createContextAttribs(Display* display, int screen, XVisualInfo* visualInfo, GLXContext sharedContext, const osg::GraphicsContext::Traits* traits)
+{
+    typedef GLXContext (*glXCreateContextAttribsARBProc)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
+
+    const char* extensions = glXQueryExtensionsString(display, screen);
+    glXCreateContextAttribsARBProc glXCreateContextAttribsARB = 0;
+    if (extensions && osg::isExtensionInExtensionString("GLX_ARB_create_context", extensions))
+    {
+        glXCreateContextAttribsARB = (glXCreateContextAttribsARBProc) glXGetProcAddress((const GLubyte*)"glXCreateContextAttribsARB");
+    }
+
+    if (!glXCreateContextAttribsARB)
+    {
+        OSG_WARN<<"Error: PixelBufferX11, glXCreateContextAttribsARB not available."<<std::endl;
+        return 0;
+    }
+
+    GLXFBConfig fbconfig = 0;
+    int nelements = 0;
+    GLXFBConfig *fbconfigs = glXGetFBConfigs( display, screen, &nelements );
+    for ( int i = 0; i < nelements && !fbconfig; ++i )
+    {
+        int visual_id;
+        if ( glXGetFBConfigAttrib( display, fbconfigs[i], GLX_VISUAL_ID, &visual_id ) == 0 &&
+             (unsigned int)visual_id == visualInfo->visualid )
+        {
+            fbconfig = fbconfigs[i];
+        }
+    }
+    if (fbconfigs) XFree( fbconfigs );
+
+    if (!fbconfig)
+    {
+        OSG_WARN<<"Error: PixelBufferX11, no GLXFBConfig matches the chosen visual."<<std::endl;
+        return 0;
+    }
+
+    unsigned int major = 1, minor = 0;
+    traits->getContextVersion(major, minor);
+
+    std::vector<int> attributes;
+    attributes.push_back(GLX_CONTEXT_MAJOR_VERSION_ARB);
+    attributes.push_back(major);
+    attributes.push_back(GLX_CONTEXT_MINOR_VERSION_ARB);
+    attributes.push_back(minor);
+    if (traits->glContextProfileMask != 0)
+    {
+        attributes.push_back(GLX_CONTEXT_PROFILE_MASK_ARB);
+        attributes.push_back(traits->glContextProfileMask);
+    }
+    if (traits->glContextFlags != 0)
+    {
+        attributes.push_back(GLX_CONTEXT_FLAGS_ARB);
+        attributes.push_back(traits->glContextFlags);
+    }
+    attributes.push_back(None);
+
+    GLXContext context = glXCreateContextAttribsARB( display, fbconfig, sharedContext, True, &attributes.front() );
+    XSync( display, False );
+
+    if (!context)
+    {
+        OSG_WARN<<"Error: PixelBufferX11, glXCreateContextAttribsARB failed for version "<<traits->glContextVersion
+                <<", profile mask 0x"<<std::hex<<traits->glContextProfileMask
+                <<", flags 0x"<<traits->glContextFlags<<std::dec
+                <<"; no fallback to a legacy context."<<std::endl;
+    }
+    return context;
+}
+#endif
 
 PixelBufferX11::PixelBufferX11(osg::GraphicsContext::Traits* traits)
   : _valid(false),
@@ -50,7 +145,7 @@ PixelBufferX11::PixelBufferX11(osg::GraphicsContext::Traits* traits)
         setState( new osg::State );
         getState()->setGraphicsContext(this);
 
-        if (_traits.valid() && _traits->sharedContext.valid())
+        if (_traits.valid() && _traits->sharedContext.valid() && !_traits->uniqueContextId)
         {
             getState()->setContextID( _traits->sharedContext->getState()->getContextID() );
             incrementContextIDUsageCount( getState()->getContextID() );
@@ -240,7 +335,29 @@ void PixelBufferX11::init()
     GraphicsHandleX11* graphicsHandleX11 = dynamic_cast<GraphicsHandleX11*>(_traits->sharedContext.get());
     Context sharedContext = graphicsHandleX11 ? graphicsHandleX11->getContext() : 0;
 
-    _context = glXCreateContext( _display, _visualInfo, sharedContext, True );
+    if (isExplicitContextRequest(_traits.get()))
+    {
+#ifdef GLX_VERSION_1_3
+        if (_traits->sharedContext.valid() && !sharedContext)
+        {
+            OSG_WARN<<"Error: PixelBufferX11, the shared context is not a realized GLX context."<<std::endl;
+        }
+        else if (!haveGLX1_3)
+        {
+            OSG_WARN<<"Error: PixelBufferX11, explicit context requests need GLX 1.3."<<std::endl;
+        }
+        else
+        {
+            _context = createContextAttribs( _display, screen, _visualInfo, sharedContext, _traits.get() );
+        }
+#else
+        OSG_WARN<<"Error: PixelBufferX11, explicit context requests need GLX 1.3."<<std::endl;
+#endif
+    }
+    else
+    {
+        _context = glXCreateContext( _display, _visualInfo, sharedContext, True );
+    }
 
     if (!_context)
     {

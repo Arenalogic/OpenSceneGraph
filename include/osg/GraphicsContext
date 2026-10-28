@@ -144,6 +144,10 @@ class OSG_EXPORT GraphicsContext : public Object
             // shared context
             osg::observer_ptr<GraphicsContext> sharedContext;
 
+            // when true a context sharing with sharedContext gets its own contextID instead of reusing the share partner's,
+            // so OSG creates its own copies of all GL objects (textures, buffers, programs as well as VAOs and FBOs) for it.
+            bool uniqueContextId;
+
             osg::ref_ptr<osg::Referenced> inheritedWindowData;
 
             // ask the GraphicsWindow implementation to set the pixel format of an inherited window
@@ -366,15 +370,55 @@ class OSG_EXPORT GraphicsContext : public Object
         double getTimeSinceLastClear() const { return osg::Timer::instance()->delta_s(_lastClearTick, osg::Timer::instance()->tick()); }
 
 
-        /** Realize the GraphicsContext.*/
+        /** Realize the GraphicsContext.
+          * On the first successful realize() after construction or close() the realize operation (or the default
+          * realize operation, if none is set) is run with the context made current, and the context released afterwards.*/
         bool realize();
 
         /** close the graphics context.
-          * close(bool) stops any associated graphics threads, releases the contextID for the GraphicsContext then
+          * close(bool) stops any associated graphics threads, runs the release operation if realize() ran the realize step,
+          * releases the contextID for the GraphicsContext then
           * optional calls closeImplementation() to do the actual deletion of the graphics.  This call is made optional
           * as there are times when the graphics context has already been deleted externally and only the OSG side
           * of the its data need to be closed down. */
         void close(bool callCloseImplementation=true);
+
+        /** Set the operation run once on this context by realize(), after realizeImplementation() succeeds, with the context current.
+          * It overrides the default realize operation. The operation is passed this GraphicsContext.*/
+        void setRealizeOperation(Operation* op) { _realizeOperation = op; }
+
+        /** Get the realize operation of this context.*/
+        Operation* getRealizeOperation() { return _realizeOperation.get(); }
+
+        /** Get the const realize operation of this context.*/
+        const Operation* getRealizeOperation() const { return _realizeOperation.get(); }
+
+        /** Set the operation run once on this context by close(), before the GL objects are flushed and before closeImplementation(),
+          * with the context current. If the context can no longer be made current, the operation still runs and getReleaseContextLost()
+          * returns true during the call; it must then drop its GL names without making GL calls.
+          * It overrides the default release operation. The operation is passed this GraphicsContext.*/
+        void setReleaseOperation(Operation* op) { _releaseOperation = op; }
+
+        /** Get the release operation of this context.*/
+        Operation* getReleaseOperation() { return _releaseOperation.get(); }
+
+        /** Get the const release operation of this context.*/
+        const Operation* getReleaseOperation() const { return _releaseOperation.get(); }
+
+        /** Return true while the release operation runs without the context current (context already destroyed or lost).*/
+        bool getReleaseContextLost() const { return _releaseContextLost; }
+
+        /** Set the realize operation used by contexts that have no realize operation of their own.*/
+        static void setDefaultRealizeOperation(Operation* op);
+
+        /** Get the realize operation used by contexts that have no realize operation of their own.*/
+        static Operation* getDefaultRealizeOperation();
+
+        /** Set the release operation used by contexts that have no release operation of their own.*/
+        static void setDefaultReleaseOperation(Operation* op);
+
+        /** Get the release operation used by contexts that have no release operation of their own.*/
+        static Operation* getDefaultReleaseOperation();
 
         /** swap the front and back buffers.*/
         void swapBuffers();
@@ -576,6 +620,11 @@ class OSG_EXPORT GraphicsContext : public Object
         GLuint                              _defaultFboId;
 
         bool                                _skipSwapBuffers;
+
+        osg::ref_ptr<Operation>             _realizeOperation;
+        osg::ref_ptr<Operation>             _releaseOperation;
+        bool                                _releaseOperationPending;
+        bool                                _releaseContextLost;
 };
 
 //#include <osg/GLExtensions>

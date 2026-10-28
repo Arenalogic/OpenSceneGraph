@@ -70,7 +70,11 @@ class OSG_EXPORT Stats : public osg::Referenced
 
         typedef std::map<std::string, bool> CollectMap;
 
-        void collectStats(const std::string& str, bool flag) { _collectMap[str] = flag; }
+        inline void collectStats(const std::string& str, bool flag)
+        {
+            OpenThreads::ScopedLock<OpenThreads::Mutex> lock(_mutex);
+            _collectMap[str] = flag;
+        }
 
         inline bool collectStats(const std::string& str) const
         {

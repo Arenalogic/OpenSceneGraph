@@ -555,6 +555,19 @@ static void reportErrorForScreen( const std::string& msg, const osg::GraphicsCon
     reportError(str.str(), errorCode);
 }
 
+// Return true if the traits explicitly request a context version (3.0 or later), a profile or context flags.
+// Explicit requests are created with wglCreateContextAttribsARB in every OpenGL profile build of OSG, share
+// through its hShareContext parameter, and fail rather than fall back to a legacy wglCreateContext context.
+static bool isExplicitContextRequest( const osg::GraphicsContext::Traits* traits )
+{
+    if (!traits) return false;
+
+    unsigned int major = 1, minor = 0;
+    if (traits->getContextVersion(major, minor) && major>=3) return true;
+
+    return traits->glContextFlags!=0 || traits->glContextProfileMask!=0;
+}
+
 //////////////////////////////////////////////////////////////////////////////
 //                       Keyboard key mapping for Win32
 //////////////////////////////////////////////////////////////////////////////
@@ -1285,7 +1298,7 @@ GraphicsWindowWin32::GraphicsWindowWin32( osg::GraphicsContext::Traits* traits )
         setState( new osg::State );
         getState()->setGraphicsContext(this);
 
-        if (_traits.valid() && _traits->sharedContext.valid())
+        if (_traits.valid() && _traits->sharedContext.valid() && !_traits->uniqueContextId)
         {
             getState()->setContextID( _traits->sharedContext->getState()->getContextID() );
             incrementContextIDUsageCount( getState()->getContextID() );
@@ -1891,7 +1904,9 @@ HGLRC GraphicsWindowWin32::createContextImplementation()
 {
     HGLRC context( NULL );
 
-    if( OSG_GL3_FEATURES )
+    bool explicitRequest = isExplicitContextRequest(_traits.get());
+
+    if( OSG_GL3_FEATURES || explicitRequest )
     {
         OSG_NOTIFY( osg::INFO ) << "GL3: Attempting to create OpenGL3 context." << std::endl;
         OSG_NOTIFY( osg::INFO ) << "GL3: version: " << _traits->glContextVersion << std::endl;
@@ -1919,9 +1934,19 @@ HGLRC GraphicsWindowWin32::createContextImplementation()
                 int attribs[ 16 ];
 
                 unsigned int major = 1, minor = 0;
-                if( !_traits->getContextVersion(major, minor) || major<3 )
+                if( (!_traits->getContextVersion(major, minor) || major<3) && OSG_GL3_FEATURES )
                 {
                     OSG_NOTIFY( osg::WARN ) << "GL3: Non-GL3 version number: " << _traits->glContextVersion << std::endl;
+                }
+
+                // explicit requests share at creation, the legacy path shares later with wglShareLists
+                HGLRC shareContext( NULL );
+                bool validShareContext = true;
+                if( explicitRequest && _traits->sharedContext.valid() )
+                {
+                    GraphicsHandleWin32* graphicsHandleWin32 = dynamic_cast<GraphicsHandleWin32*>(_traits->sharedContext.get());
+                    shareContext = graphicsHandleWin32 ? graphicsHandleWin32->getWGLContext() : NULL;
+                    validShareContext = shareContext!=NULL;
                 }
 
                 attribs[ idx++ ] = WGL_CONTEXT_MAJOR_VERSION_ARB;
@@ -1940,15 +1965,23 @@ HGLRC GraphicsWindowWin32::createContextImplementation()
                 }
                 attribs[ idx++ ] = 0;
 
-                context = wglCreateContextAttribsARB( _hdc, 0, attribs );
-                if( context == NULL )
+                if( !validShareContext )
                 {
-                    reportErrorForScreen( "GL3: wglCreateContextAttribsARB returned NULL.",
-                        _traits->screenNum, ::GetLastError() );
+                    reportErrorForScreen( "GL3: the shared context is not a realized Win32 OpenGL context.",
+                        _traits->screenNum, 0 );
                 }
                 else
                 {
-                    OSG_NOTIFY( osg::INFO ) << "GL3: context created successfully." << std::endl;
+                    context = wglCreateContextAttribsARB( _hdc, shareContext, attribs );
+                    if( context == NULL )
+                    {
+                        reportErrorForScreen( "GL3: wglCreateContextAttribsARB returned NULL.",
+                            _traits->screenNum, ::GetLastError() );
+                    }
+                    else
+                    {
+                        OSG_NOTIFY( osg::INFO ) << "GL3: context created successfully." << std::endl;
+                    }
                 }
             }
         }
@@ -1965,8 +1998,24 @@ HGLRC GraphicsWindowWin32::createContextImplementation()
     // are present.
     //
     // This is also the typical path for GL 1/2 context creation.
+    //
+    // Explicit requests (version 3.0 or later, a profile or context flags) never fall back:
+    // returning a legacy context would hide the failure from the application.
     if( context == NULL )
-        context = ::wglCreateContext(_hdc);
+    {
+        if( explicitRequest )
+        {
+            OSG_NOTIFY( osg::WARN ) << "Error: GraphicsWindowWin32::createContextImplementation() - unable to create the requested OpenGL context"
+                                    << " (version " << _traits->glContextVersion
+                                    << ", profile mask 0x" << std::hex << _traits->glContextProfileMask
+                                    << ", flags 0x" << _traits->glContextFlags << std::dec
+                                    << "); no fallback to a legacy context." << std::endl;
+        }
+        else
+        {
+            context = ::wglCreateContext(_hdc);
+        }
+    }
 
     return( context );
 }
@@ -2086,9 +2135,9 @@ bool GraphicsWindowWin32::realizeImplementation()
             return false;
         }
 
-        // set up sharing of contexts if required
+        // set up sharing of contexts if required, explicit context requests have already shared at creation
         GraphicsHandleWin32* graphicsHandleWin32 = dynamic_cast<GraphicsHandleWin32*>(_traits->sharedContext.get());
-        if (graphicsHandleWin32)
+        if (graphicsHandleWin32 && !isExplicitContextRequest(_traits.get()))
         {
             if (!wglShareLists(graphicsHandleWin32->getWGLContext(), getWGLContext()))
             {
