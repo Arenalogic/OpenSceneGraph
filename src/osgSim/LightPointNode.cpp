@@ -14,35 +14,14 @@
 #include <osgSim/LightPointNode>
 #include <osgSim/LightPointSystem>
 
-#include "LightPointDrawable.h"
-#include "LightPointSpriteDrawable.h"
+#include <osg/Notify>
 
-#include <osg/Timer>
-#include <osg/BoundingBox>
-#include <osg/BlendFunc>
-#include <osg/Material>
-#include <osg/PointSprite>
+#include <OpenThreads/Atomic>
 
-#include <osgUtil/CullVisitor>
-
-#include <typeinfo>
+#include <float.h>
 
 namespace osgSim
 {
-
-osg::StateSet* LightPointNode::getSingletonLightPointSystemSet()
-{
-    static osg::ref_ptr<osg::StateSet> s_stateset = 0;
-    if (!s_stateset)
-    {
-        s_stateset = new osg::StateSet;
-        // force light point nodes to be drawn after everything else by picking a rendering bin number after
-        // the transparent bin.
-        s_stateset->setRenderBinDetails(20,"DepthSortedBin");
-    }
-    return s_stateset.get();
-}
-
 
 LightPointNode::LightPointNode():
     _minPixelSize(0.0f),
@@ -51,7 +30,6 @@ LightPointNode::LightPointNode():
     _lightSystem(0),
     _pointSprites(false)
 {
-    setStateSet(getSingletonLightPointSystemSet());
 }
 
 /** Copy constructor using CopyOp to manage deep vs shallow copy.*/
@@ -117,301 +95,26 @@ osg::BoundingSphere LightPointNode::computeBound() const
         if (bsphere.radius()<radius) bsphere.radius()=radius;
     }
 
-    bsphere.radius()+=200.0f;
+    bsphere.radius()+=1.0f;
     return bsphere;
 }
 
 
 void LightPointNode::traverse(osg::NodeVisitor& nv)
 {
-    if (_lightPointList.empty())
+    // The light points are data only: the node draws nothing (its drawables and its shared state set are gone, with
+    // their client-array GL_POINTS drawing). An application draws them from the light point list with a drawable of
+    // its own (ACT: dtRender::LightPointImport converts every node when a file is read). A node that is still culled
+    // is reported once per process.
+    if (_lightPointList.empty() || nv.getVisitorType() != osg::NodeVisitor::CULL_VISITOR) return;
+
+    static OpenThreads::Atomic s_reported;
+    if (s_reported.exchange(1) == 0)
     {
-        // no light points so no op.
-        return;
+        OSG_WARN << "osgSim::LightPointNode \"" << getName() << "\" (" << _lightPointList.size()
+                 << " light points) is culled but draws nothing: osgSim light points are data only in this build "
+                 << "(OSGSIM_LIGHTPOINT_NO_DRAW); convert them to a drawable. Further nodes are not reported." << std::endl;
     }
-    if (nv.getVisitorType() == osg::NodeVisitor::NODE_VISITOR)
-    {
-       setStateSet(getSingletonLightPointSystemSet());
-    }
-
-    //#define USE_TIMER
-    #ifdef USE_TIMER
-    osg::Timer timer;
-    osg::Timer_t t1=0,t2=0,t3=0,t4=0,t5=0,t6=0,t7=0,t8=0;
-    #endif
-
-
-#ifdef USE_TIMER
-    t1 = timer.tick();
-#endif
-
-    osgUtil::CullVisitor* cv = nv.asCullVisitor();
-
-#ifdef USE_TIMER
-    t2 = timer.tick();
-#endif
-
-
-    // should we disable small feature culling here?
-    if (cv /*&& !cv->isCulled(_bbox)*/)
-    {
-
-        osg::Matrix matrix = *(cv->getModelViewMatrix());
-        osg::RefMatrix& projection = *(cv->getProjectionMatrix());
-        osgUtil::StateGraph* rg = cv->getCurrentStateGraph();
-
-        if (rg->leaves_empty())
-        {
-            // this is first leaf to be added to StateGraph
-            // and therefore should not already know current render bin,
-            // so need to add it.
-            cv->getCurrentRenderBin()->addStateGraph(rg);
-        }
-
-#ifdef USE_TIMER
-        t3 = timer.tick();
-#endif
-
-
-        LightPointDrawable* drawable = NULL;
-        osg::Referenced* object = rg->getUserData();
-        if (object)
-        {
-            if (typeid(*object)==typeid(LightPointDrawable))
-            {
-                // reuse the user data attached to the render graph.
-                drawable = static_cast<LightPointDrawable*>(object);
-
-            }
-            else if (typeid(*object)==typeid(LightPointSpriteDrawable))
-            {
-                drawable = static_cast<LightPointSpriteDrawable*>(object);
-            }
-            else
-            {
-                // will need to replace UserData.
-                OSG_WARN << "Warning: Replacing osgUtil::StateGraph::_userData to support osgSim::LightPointNode, may have undefined results."<<std::endl;
-            }
-        }
-
-        if (!drawable)
-        {
-            drawable = _pointSprites ? new LightPointSpriteDrawable : new LightPointDrawable;
-            rg->setUserData(drawable);
-
-            if (cv->getFrameStamp())
-            {
-                drawable->setSimulationTime(cv->getFrameStamp()->getSimulationTime());
-            }
-        }
-
-        // search for a drawable in the RenderLeaf list equal to the attached the one attached to StateGraph user data
-        // as this will be our special light point drawable.
-        osgUtil::StateGraph::LeafList::iterator litr;
-        for(litr = rg->_leaves.begin();
-            litr != rg->_leaves.end() && (*litr)->getDrawable()!=drawable;
-            ++litr)
-        {}
-
-        if (litr == rg->_leaves.end())
-        {
-            // haven't found the drawable added in the RenderLeaf list, therefore this may be the
-            // first time through LightPointNode in this frame, so need to add drawable into the StateGraph RenderLeaf list
-            // and update its time signatures.
-
-            drawable->reset();
-            rg->addLeaf(new osgUtil::RenderLeaf(drawable,&projection,NULL,FLT_MAX));
-
-            // need to update the drawable's frame count.
-            if (cv->getFrameStamp())
-            {
-                drawable->updateSimulationTime(cv->getFrameStamp()->getSimulationTime());
-            }
-
-        }
-
-#ifdef USE_TIMER
-        t4 = timer.tick();
-#endif
-
-
-#ifdef USE_TIMER
-        t7 = timer.tick();
-#endif
-
-
-        if (cv->getComputeNearFarMode() != osgUtil::CullVisitor::DO_NOT_COMPUTE_NEAR_FAR)
-            cv->updateCalculatedNearFar(matrix,_bbox);
-
-
-        const float minimumIntensity = 1.0e-15f;//1.0f/256.0f;
-        const osg::Vec3 eyePoint = cv->getEyeLocal();
-
-        double time=drawable->getSimulationTime();
-        double timeInterval=drawable->getSimulationTimeInterval();
-
-        const osg::Polytope clipvol(cv->getCurrentCullingSet().getFrustum());
-        const bool computeClipping = false;//(clipvol.getCurrentMask()!=0);
-
-        //LightPointDrawable::ColorPosition cp;
-        for(LightPointList::iterator itr=_lightPointList.begin();
-            itr!=_lightPointList.end();
-            ++itr)
-        {
-            const LightPoint& lp = *itr;
-
-            if (!lp._on) continue;
-
-            const osg::Vec3& position = lp._position;
-
-            // skip light point if it is not contained in the view frustum.
-            if (computeClipping && !clipvol.contains(position)) continue;
-
-            // delta vector between eyepoint and light point.
-            osg::Vec3 dv(eyePoint-position);
-
-            float intensity = (_lightSystem.valid()) ? _lightSystem->getIntensity() : lp._intensity;
-
-            // slip light point if its intensity is 0.0 or negative.
-            if (intensity<=minimumIntensity) continue;
-
-            // (SIB) Clip on distance, if close to limit, add transparency
-            float distanceFactor = 1.0f;
-            if (_maxVisibleDistance2!=FLT_MAX)
-            {
-                if (dv.length2()>_maxVisibleDistance2) continue;
-                else if (_maxVisibleDistance2 > 0)
-                    distanceFactor = 1.0f - osg::square(dv.length2() / _maxVisibleDistance2);
-            }
-
-            osg::Vec4 color = lp._color;
-
-            // check the sector.
-            if (lp._sector.valid())
-            {
-                intensity *= (*lp._sector)(dv);
-
-                // skip light point if it is intensity is 0.0 or negative.
-                if (intensity<=minimumIntensity) continue;
-
-            }
-
-            // temporary accounting of intensity.
-            //color *= intensity;
-
-            // check the blink sequence.
-            bool doBlink = lp._blinkSequence.valid();
-            if (doBlink && _lightSystem.valid())
-                doBlink = (_lightSystem->getAnimationState() == LightPointSystem::ANIMATION_ON);
-
-            if (doBlink)
-            {
-                osg::Vec4 bs = lp._blinkSequence->color(time,timeInterval);
-                color[0] *= bs[0];
-                color[1] *= bs[1];
-                color[2] *= bs[2];
-                color[3] *= bs[3];
-            }
-
-            // if alpha value is less than the min intentsity then skip
-            if (color[3]<=minimumIntensity) continue;
-
-            float pixelSize = cv->pixelSize(position,lp._radius);
-
-            //            cout << "pixelsize = "<<pixelSize<<endl;
-
-            // adjust pixel size to account for intensity.
-            if (intensity!=1.0) pixelSize *= sqrt(intensity);
-
-            // adjust alpha to account for max range (Fade on distance)
-            color[3] *= distanceFactor;
-
-            // round up to the minimum pixel size if required.
-            float orgPixelSize = pixelSize;
-            if (pixelSize<_minPixelSize) pixelSize = _minPixelSize;
-
-            osg::Vec3 xpos(position*matrix);
-
-            if (lp._blendingMode==LightPoint::BLENDED)
-            {
-                if (pixelSize<1.0f)
-                {
-                    // need to use alpha blending...
-                    color[3] *= pixelSize;
-                    // color[3] *= osg::square(pixelSize);
-
-                    if (color[3]<=minimumIntensity) continue;
-
-                    drawable->addBlendedLightPoint(0, xpos,color);
-                }
-                else if (pixelSize<_maxPixelSize)
-                {
-
-                    unsigned int lowerBoundPixelSize = (unsigned int)pixelSize;
-                    float remainder = osg::square(pixelSize-(float)lowerBoundPixelSize);
-
-                    // (SIB) Add transparency if pixel is clamped to minpixelsize
-                    if (orgPixelSize<_minPixelSize)
-                        color[3] *= (2.0/3.0) + (1.0/3.0) * sqrt(orgPixelSize / pixelSize);
-
-                    drawable->addBlendedLightPoint(lowerBoundPixelSize-1, xpos,color);
-                    color[3] *= remainder;
-                    drawable->addBlendedLightPoint(lowerBoundPixelSize, xpos,color);
-                }
-                else // use a billboard geometry.
-                {
-                    drawable->addBlendedLightPoint((unsigned int)(_maxPixelSize-1.0), xpos,color);
-                }
-            }
-            else // ADDITIVE blending.
-            {
-                if (pixelSize<1.0f)
-                {
-                    // need to use alpha blending...
-                    color[3] *= pixelSize;
-                    // color[3] *= osg::square(pixelSize);
-
-                    if (color[3]<=minimumIntensity) continue;
-
-                    drawable->addAdditiveLightPoint(0, xpos,color);
-                }
-                else if (pixelSize<_maxPixelSize)
-                {
-
-                    unsigned int lowerBoundPixelSize = (unsigned int)pixelSize;
-                    float remainder = osg::square(pixelSize-(float)lowerBoundPixelSize);
-
-                    // (SIB) Add transparency if pixel is clamped to minpixelsize
-                    if (orgPixelSize<_minPixelSize)
-                        color[3] *= (2.0/3.0) + (1.0/3.0) * sqrt(orgPixelSize / pixelSize);
-
-                    float alpha = color[3];
-                    color[3] = alpha*(1.0f-remainder);
-                    drawable->addAdditiveLightPoint(lowerBoundPixelSize-1, xpos,color);
-                    color[3] = alpha*remainder;
-                    drawable->addAdditiveLightPoint(lowerBoundPixelSize, xpos,color);
-                }
-                else // use a billboard geometry.
-                {
-                    drawable->addAdditiveLightPoint((unsigned int)(_maxPixelSize-1.0), xpos,color);
-                }
-            }
-        }
-
-#ifdef USE_TIMER
-        t8 = timer.tick();
-#endif
-
-    }
-#ifdef USE_TIMER
-    cout << "compute"<<endl;
-    cout << "  t2-t1="<<t2-t1<<endl;
-    cout << "  t4-t3="<<t4-t3<<endl;
-    cout << "  t6-t5="<<t6-t5<<endl;
-    cout << "  t8-t7="<<t8-t7<<endl;
-    cout << "_lightPointList.size()="<<_lightPointList.size()<<endl;
-    cout << "  t8-t7/size = "<<(float)(t8-t7)/(float)_lightPointList.size()<<endl;
-#endif
 }
 
 

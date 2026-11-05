@@ -45,11 +45,7 @@ SET(TARGET_SRC
     ImpostorSprite.cpp
     InsertImpostorsVisitor.cpp
     LightPoint.cpp
-    LightPointDrawable.cpp
-    LightPointDrawable.h
     LightPointNode.cpp
-    LightPointSpriteDrawable.cpp
-    LightPointSpriteDrawable.h
     LineOfSight.cpp
     MultiSwitch.cpp
     OverlayNode.cpp

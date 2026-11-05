@@ -16,6 +16,11 @@
 
 #include <osgSim/Export>
 
+/** Defined when osgSim::LightPointNode is data only: no LightPointDrawable, no LightPointSpriteDrawable, no cull-time
+  * drawing and no LightPointNode::getSingletonLightPointSystemSet (a culled node draws nothing and logs once). Code that
+  * has to build against both this and an older osgSim tests it. Fork tag C (ACT GL core native C1 L5). */
+#define OSGSIM_LIGHTPOINT_NO_DRAW 1
+
 extern "C" {
 
 /**

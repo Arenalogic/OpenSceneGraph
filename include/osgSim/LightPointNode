@@ -30,11 +30,14 @@
 namespace osgSim {
 
 
+/** A list of light points as data: positions, colours, intensities, sectors, blink sequences, the pixel size limits and
+  * the light point system. The node draws nothing (OSGSIM_LIGHTPOINT_NO_DRAW, osgSim/Version): the drawables of
+  * earlier versions and their shared state set are gone, and a culled node with light points logs once per process.
+  * The readers and writers (OpenFlight, ive, the serializers) keep reading and writing it; an application draws the
+  * light points with a drawable of its own. */
 class OSGSIM_EXPORT LightPointNode : public osg::Node
 {
     public :
-        static osg::StateSet* getSingletonLightPointSystemSet();
-
 
         typedef std::vector< LightPoint > LightPointList;
 
@@ -85,6 +88,7 @@ class OSGSIM_EXPORT LightPointNode : public osg::Node
         osgSim::LightPointSystem* getLightPointSystem() { return _lightSystem.get(); }
         const osgSim::LightPointSystem* getLightPointSystem() const { return _lightSystem.get(); }
 
+        /** Whether the light points were drawn as point sprites (data: kept for the readers, writers and converters). */
         void setPointSprite(bool enable=true) { _pointSprites = enable; }
 
         bool getPointSprite() const { return _pointSprites; }
