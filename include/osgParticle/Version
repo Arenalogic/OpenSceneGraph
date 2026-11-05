@@ -22,6 +22,11 @@
   * build against both this and an older osgParticle tests it. Fork tag B (ACT GL core native C11 P4). */
 #define OSGPARTICLE_CORE_DRAW 1
 
+/** Defined when osgParticle::ParticleSystem has no setDefaultAttributes and no setDefaultAttributesUsingShaders (the
+  * fixed-function Material, TexEnv and GL_LIGHTING they wrote are gone with them): the host calls setRenderParameters.
+  * The readers keep reading the attributes saved files carry. Fork tag C (ACT GL core native C11 P6). */
+#define OSGPARTICLE_NO_DEFAULT_ATTRIBUTES 1
+
 extern "C" {
 
 /**

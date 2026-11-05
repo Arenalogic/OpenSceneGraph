@@ -86,7 +86,7 @@ void SmokeTrailEffect::setUpEmitterAndProgram()
 
     if (_particleSystem.valid())
     {
-        _particleSystem->setDefaultAttributes(_textureFileName, false, false);
+        setUpRenderParameters();
 
         osgParticle::Particle& ptemplate = _particleSystem->getDefaultParticleTemplate();
 

@@ -154,7 +154,8 @@ namespace osgParticle
         /** The GLSL name of a core attribute ("osgParticle_center", ...). */
         static const char* getCoreAttributeName(CoreAttribute attribute);
 
-        /** Set the render parameters as data, replacing setDefaultAttributes: on this system's StateSet (created if
+        /** Set the render parameters as data (setDefaultAttributes and setDefaultAttributesUsingShaders are gone,
+            OSGPARTICLE_NO_DEFAULT_ATTRIBUTES): on this system's StateSet (created if
             missing; nothing else in it is changed) the texture on texture_unit (left alone when texture is NULL), the
             blend function exactly as authored with GL_BLEND on (left alone when blend is NULL), an osg::Depth with depth
             writes off, the transparent bin when the StateSet names none, and the lit flag (getRenderParametersLit).
@@ -174,7 +175,6 @@ namespace osgParticle
             Lots of variables will be omitted: particles' shape, alive or not, visibility distance, and so on,
             so the rendering result is not as good as we wish (although it's fast than using glBegin/glEnd).
             We had better use this for GLSL shaders, in which particle parameters will be kept as uniforms.
-            This method is called automatically by <CODE>setDefaultAttributesUsingShaders()</CODE>.
             Deprecated: the core drawing ignores it; kept so saved files stay readable.
         */
         void setUseVertexArray(bool v) { _useVertexArray = v; }
@@ -197,8 +197,7 @@ namespace osgParticle
             Double pass rendering avoids overdraw problems between particle systems
             and other opaque objects. If you can render all the particle systems after
             the opaque objects, then double pass is not necessary and can be turned off (best choice).
-            If you set the default attributes with setDefaultAttributes, then the particle
-            system will fall into a transparent bin.
+            setRenderParameters puts the particle system into the transparent bin when its StateSet names none.
             Deprecated: the core drawing ignores it; kept so saved files stay readable.
         */
         inline void setDoublePassRendering(bool v);
@@ -256,21 +255,6 @@ namespace osgParticle
 
         /// Set whether the particle system can freeze when culled (default is true)
         inline void setFreezeOnCull(bool v);
-
-        /** A useful method to set the most common <CODE>StateAttribute</CODE>'s in one call.
-            If <CODE>texturefile</CODE> is empty, then texturing is turned off.
-            Deprecated: it writes fixed-function state (Material, TexEnv, GL_LIGHTING) that a core profile cannot use;
-            use setRenderParameters with a host program. Removed in a later fork tag.
-        */
-        void setDefaultAttributes(const std::string& texturefile = "", bool emissive_particles = true, bool lighting = false, int texture_unit = 0);
-
-        /** A useful method to set the most common <CODE>StateAttribute</CODE> and use GLSL shaders to draw particles.
-            At present, when enabling shaders in the particle system, user-defined shapes will not be usable.
-            If <CODE>texturefile</CODE> is empty, then texturing is turned off.
-            Deprecated: it no longer installs a program (the core drawing has no built-in GLSL); it writes the texture,
-            the blend and the depth attribute as setRenderParameters does. Removed in a later fork tag.
-        */
-        void setDefaultAttributesUsingShaders(const std::string& texturefile = "", bool emissive_particles = true, int texture_unit = 0);
 
         /// (<B>EXPERIMENTAL</B>) Get the level of detail.
         inline int getLevelOfDetail() const;

@@ -39,6 +39,27 @@
 #include <osgParticle/BounceOperator>
 #include <osgParticle/SinkOperator>
 
+#include <osg/BlendFunc>
+#include <osg/Texture2D>
+
+// The texture and the blend of a particle system (setDefaultAttributes before fork tag C, without its Material, TexEnv
+// and GL_LIGHTING). osgParticle draws with the host's program (OSGPARTICLE_CORE_DRAW): without one nothing is drawn.
+static void setRenderParameters(osgParticle::ParticleSystem* ps, const std::string& texturefile, bool emissive, int unit = 0)
+{
+    osg::ref_ptr<osg::Texture2D> texture;
+    if (!texturefile.empty())
+    {
+        texture = new osg::Texture2D(osgDB::readRefImageFile(texturefile));
+        texture->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::LINEAR);
+        texture->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
+        texture->setWrap(osg::Texture2D::WRAP_S, osg::Texture2D::MIRROR);
+        texture->setWrap(osg::Texture2D::WRAP_T, osg::Texture2D::MIRROR);
+    }
+    osg::ref_ptr<osg::BlendFunc> blend = new osg::BlendFunc(osg::BlendFunc::SRC_ALPHA,
+                                                            emissive ? osg::BlendFunc::ONE : osg::BlendFunc::ONE_MINUS_SRC_ALPHA);
+    ps->setRenderParameters(texture.get(), blend.get(), false, unit);
+}
+
 void createFountainEffect( osgParticle::ModularEmitter* emitter, osgParticle::ModularProgram* program )
 {
     // Emit specific number of particles every frame
@@ -111,11 +132,11 @@ int main( int argc, char** argv )
         // Set using local GLSL shaders to render particles.
         // At present, this is slightly efficient than ordinary methods. The bottlenack here seems to be the cull
         // traversal time. Operators go through the particle list again and again...
-        ps->setDefaultAttributesUsingShaders( textureFile, true, 0 );
+        setRenderParameters( ps.get(), textureFile, true, 0 );
     }
     else
     {
-        ps->setDefaultAttributes( textureFile, true, false, 0 );
+        setRenderParameters( ps.get(), textureFile, true, 0 );
 
         // Without the help of shaders, we have to sort particles to make the visibility distance work. Sorting is
         // also useful in rendering transparent particles in back-to-front order.

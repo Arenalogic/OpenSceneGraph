@@ -100,6 +100,11 @@ namespace osgParticle
 
         virtual ~ParticleEffect() {}
 
+        /** The effects' render parameters on _particleSystem (what setDefaultAttributes(_textureFileName, false, false)
+            gave them, without the fixed-function state): the texture file (linear filters, mirrored wrap) when one is
+            named, the straight alpha blend, unlit. The host's program shades the particles (OSGPARTICLE_CORE_DRAW). */
+        void setUpRenderParameters();
+
         bool                            _automaticSetup;
 
         osg::ref_ptr<ParticleSystem>    _particleSystem;

@@ -14,6 +14,9 @@
 #include <osgParticle/ParticleEffect>
 #include <osgParticle/ParticleSystemUpdater>
 #include <osg/Geode>
+#include <osg/BlendFunc>
+#include <osg/Texture2D>
+#include <osgDB/ReadFile>
 
 using namespace osgParticle;
 
@@ -135,6 +138,25 @@ void ParticleEffect::setDefaults()
     _startTime = 0.0;
     _emitterDuration = 1.0;
     _wind.set(0.0f,0.0f,0.0f);
+}
+
+void ParticleEffect::setUpRenderParameters()
+{
+    if (!_particleSystem) return;
+
+    osg::ref_ptr<osg::Texture2D> texture;
+    if (!_textureFileName.empty())
+    {
+        texture = new osg::Texture2D;
+        texture->setImage(osgDB::readRefImageFile(_textureFileName));
+        texture->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::LINEAR);
+        texture->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
+        texture->setWrap(osg::Texture2D::WRAP_S, osg::Texture2D::MIRROR);
+        texture->setWrap(osg::Texture2D::WRAP_T, osg::Texture2D::MIRROR);
+    }
+
+    osg::ref_ptr<osg::BlendFunc> blend = new osg::BlendFunc(osg::BlendFunc::SRC_ALPHA, osg::BlendFunc::ONE_MINUS_SRC_ALPHA);
+    _particleSystem->setRenderParameters(texture.get(), blend.get(), false);
 }
 
 void ParticleEffect::buildEffect()

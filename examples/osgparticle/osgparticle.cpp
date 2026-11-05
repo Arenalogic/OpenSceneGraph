@@ -33,6 +33,28 @@
 #include <osgParticle/AccelOperator>
 #include <osgParticle/FluidFrictionOperator>
 
+#include <osg/BlendFunc>
+#include <osg/Texture2D>
+#include <osgDB/ReadFile>
+
+// The texture and the blend of a particle system (setDefaultAttributes before fork tag C, without its Material, TexEnv
+// and GL_LIGHTING). osgParticle draws with the host's program (OSGPARTICLE_CORE_DRAW): without one nothing is drawn.
+static void setRenderParameters(osgParticle::ParticleSystem* ps, const std::string& texturefile, bool emissive, int unit = 0)
+{
+    osg::ref_ptr<osg::Texture2D> texture;
+    if (!texturefile.empty())
+    {
+        texture = new osg::Texture2D(osgDB::readRefImageFile(texturefile));
+        texture->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::LINEAR);
+        texture->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
+        texture->setWrap(osg::Texture2D::WRAP_S, osg::Texture2D::MIRROR);
+        texture->setWrap(osg::Texture2D::WRAP_T, osg::Texture2D::MIRROR);
+    }
+    osg::ref_ptr<osg::BlendFunc> blend = new osg::BlendFunc(osg::BlendFunc::SRC_ALPHA,
+                                                            emissive ? osg::BlendFunc::ONE : osg::BlendFunc::ONE_MINUS_SRC_ALPHA);
+    ps->setRenderParameters(texture.get(), blend.get(), false, unit);
+}
+
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -131,14 +153,11 @@ osgParticle::ParticleSystem *create_simple_particle_system(osg::Group *root)
 
     // As for other Drawable classes, the aspect of graphical elements of
     // ParticleSystem (the particles) depends on the StateAttribute's we
-    // give it. The ParticleSystem class has an helper function that let
-    // us specify a set of the most common attributes: setDefaultAttributes().
-    // This method can accept up to three parameters; the first is a texture
-    // name (std::string), which can be empty to disable texturing, the second
-    // sets whether particles have to be "emissive" (additive blending) or not;
-    // the third parameter enables or disables lighting.
+    // give it. setRenderParameters() (through the helper above) sets the
+    // most common ones: a texture (none here) and the blend, "emissive"
+    // (additive blending) or not.
 
-    ps->setDefaultAttributes("", true, false);
+    setRenderParameters(ps, "", true);
 
     // Now that our particle system is set we have to create an emitter, that is
     // an object (actually a Node descendant) that generate new particles at
@@ -237,7 +256,7 @@ osgParticle::ParticleSystem *create_complex_particle_system(osg::Group *root)
     // We turn off the additive blending, because smoke has no self-
     // illumination.
     osgParticle::ParticleSystem *ps = new osgParticle::ParticleSystem;
-    ps->setDefaultAttributes("Images/smoke.rgb", false, false);
+    setRenderParameters(ps, "Images/smoke.rgb", false);
 
     // assign the particle template to the system.
     ps->setDefaultParticleTemplate(ptemplate);
@@ -365,7 +384,7 @@ osgParticle::ParticleSystem *create_animated_particle_system(osg::Group *root)
     osgParticle::ParticleSystem *ps = new osgParticle::ParticleSystem;
 
     // Assign the tiled texture
-    ps->setDefaultAttributes("Images/fireparticle8x8.png", false, false);
+    setRenderParameters(ps, "Images/fireparticle8x8.png", false);
 
     // Create two emitters, one for the explosions, one for the smoke balls.
     osgParticle::ModularEmitter *emitter1 = new osgParticle::ModularEmitter;

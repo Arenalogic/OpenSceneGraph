@@ -10,9 +10,6 @@
 #include <osg/StateSet>
 #include <osg/Texture2D>
 #include <osg/BlendFunc>
-#include <osg/TexEnv>
-#include <osg/Material>
-#include <osg/PointSprite>
 #include <osg/Program>
 #include <osg/Depth>
 #include <osg/Quat>
@@ -21,9 +18,6 @@
 #include <osg/Notify>
 #include <osg/io_utils>
 
-#include <osgDB/FileUtils>
-#include <osgDB/ReadFile>
-#include <osgDB/WriteFile>
 #include <osgUtil/CullVisitor>
 
 static double distance(const osg::Vec3& coord, const osg::Matrix& matrix)
@@ -414,85 +408,6 @@ void osgParticle::ParticleSystem::setRenderParameters(osg::Texture* texture, osg
 
     _renderParametersLit = lit;
     _hasRenderParameters = true;
-}
-
-void osgParticle::ParticleSystem::setDefaultAttributes(const std::string& texturefile, bool emissive_particles, bool lighting, int texture_unit)
-{
-    osg::StateSet *stateset = new osg::StateSet;
-
-    stateset->setMode(GL_LIGHTING, lighting? osg::StateAttribute::ON: osg::StateAttribute::OFF);
-    stateset->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
-
-    osg::Material *material = new osg::Material;
-    material->setSpecular(osg::Material::FRONT, osg::Vec4(0, 0, 0, 1));
-    material->setEmission(osg::Material::FRONT, osg::Vec4(0, 0, 0, 1));
-    material->setColorMode(lighting? osg::Material::AMBIENT_AND_DIFFUSE : osg::Material::OFF);
-    stateset->setAttributeAndModes(material, osg::StateAttribute::ON);
-
-    osg::Texture2D* texture = 0;
-    if (!texturefile.empty()) {
-        texture = new osg::Texture2D;
-        texture->setImage(osgDB::readRefImageFile(texturefile));
-        texture->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::LINEAR);
-        texture->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
-        texture->setWrap(osg::Texture2D::WRAP_S, osg::Texture2D::MIRROR);
-        texture->setWrap(osg::Texture2D::WRAP_T, osg::Texture2D::MIRROR);
-        stateset->setTextureAttributeAndModes(texture_unit, texture, osg::StateAttribute::ON);
-
-        osg::TexEnv *texenv = new osg::TexEnv;
-        texenv->setMode(osg::TexEnv::MODULATE);
-        stateset->setTextureAttribute(texture_unit, texenv);
-    }
-
-    osg::BlendFunc *blend = new osg::BlendFunc;
-    if (emissive_particles) {
-        blend->setFunction(osg::BlendFunc::SRC_ALPHA, osg::BlendFunc::ONE);
-    } else {
-        blend->setFunction(osg::BlendFunc::SRC_ALPHA, osg::BlendFunc::ONE_MINUS_SRC_ALPHA);
-    }
-    stateset->setAttributeAndModes(blend, osg::StateAttribute::ON);
-
-    setStateSet(stateset);
-    setUseVertexArray(false);
-    setUseShaders(false);
-
-    // the depth attribute and the lit flag of the core drawing
-    setRenderParameters(texture, blend, lighting, texture_unit);
-}
-
-
-void osgParticle::ParticleSystem::setDefaultAttributesUsingShaders(const std::string& texturefile, bool emissive_particles, int texture_unit)
-{
-    // The built-in GLSL is gone with the core drawing: the host's material supplies the program.
-    osg::StateSet *stateset = new osg::StateSet;
-    stateset->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
-    setStateSet(stateset);
-
-    osg::Texture2D* texture = 0;
-    if (!texturefile.empty())
-    {
-        texture = new osg::Texture2D;
-        texture->setImage(osgDB::readRefImageFile(texturefile));
-        texture->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::LINEAR);
-        texture->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
-        texture->setWrap(osg::Texture2D::WRAP_S, osg::Texture2D::MIRROR);
-        texture->setWrap(osg::Texture2D::WRAP_T, osg::Texture2D::MIRROR);
-    }
-
-    osg::BlendFunc *blend = new osg::BlendFunc;
-    if (emissive_particles)
-    {
-        blend->setFunction(osg::BlendFunc::SRC_ALPHA, osg::BlendFunc::ONE);
-    }
-    else
-    {
-        blend->setFunction(osg::BlendFunc::SRC_ALPHA, osg::BlendFunc::ONE_MINUS_SRC_ALPHA);
-    }
-
-    setRenderParameters(texture, blend, false, texture_unit);
-
-    setUseVertexArray(true);
-    setUseShaders(true);
 }
 
 osg::BoundingBox osgParticle::ParticleSystem::computeBoundingBox() const
