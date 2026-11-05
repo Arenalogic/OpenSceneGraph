@@ -685,6 +685,119 @@ void Program::PerContextProgram::requestLink()
 }
 
 
+namespace
+{
+    bool isIdentifierChar(char c)
+    {
+        return (c>='a' && c<='z') || (c>='A' && c<='Z') || (c>='0' && c<='9') || c=='_';
+    }
+
+    // The source with its // and /* */ comments replaced by spaces (newlines kept), so a comment between the tokens of
+    // a declaration does not hide it and a commented-out declaration does not count.
+    std::string withoutComments(const std::string& source)
+    {
+        std::string out(source);
+        std::string::size_type i = 0;
+        while (i+1<out.size())
+        {
+            if (out[i]=='/' && out[i+1]=='/')
+            {
+                while (i<out.size() && out[i]!='\n') out[i++] = ' ';
+            }
+            else if (out[i]=='/' && out[i+1]=='*')
+            {
+                out[i++] = ' '; out[i++] = ' ';
+                while (i<out.size() && !(out[i]=='*' && i+1<out.size() && out[i+1]=='/'))
+                {
+                    if (out[i]!='\n') out[i] = ' ';
+                    ++i;
+                }
+                if (i<out.size()) { out[i++] = ' '; }
+                if (i<out.size()) { out[i++] = ' '; }
+            }
+            else
+            {
+                ++i;
+            }
+        }
+        return out;
+    }
+
+    // The token that ends right before pos (whitespace skipped), pos moved to its start: an identifier, or one other
+    // character. Empty at the start of the source.
+    std::string tokenBefore(const std::string& source, std::string::size_type& pos)
+    {
+        while (pos>0 && (source[pos-1]==' ' || source[pos-1]=='\t' || source[pos-1]=='\r' || source[pos-1]=='\n')) --pos;
+        if (pos==0) return std::string();
+        const std::string::size_type end = pos;
+        if (isIdentifierChar(source[pos-1]))
+        {
+            while (pos>0 && isIdentifierChar(source[pos-1])) --pos;
+        }
+        else
+        {
+            --pos;
+        }
+        return source.substr(pos, end-pos);
+    }
+
+    bool containsWord(const std::string& text, const char* word)
+    {
+        const std::string::size_type length = strlen(word);
+        for (std::string::size_type at = text.find(word); at!=std::string::npos; at = text.find(word, at+1))
+        {
+            const std::string::size_type end = at+length;
+            if ((at==0 || !isIdentifierChar(text[at-1])) && (end>=text.size() || !isIdentifierChar(text[end]))) return true;
+        }
+        return false;
+    }
+
+    // True when the source declares the uniform block blockName with a binding layout qualifier
+    // ("layout(std140, binding = 1) uniform ViewBlock"; GLSL 4.20 or ARB_shading_language_420pack). The linker binds
+    // such a block itself; GL cannot tell an explicit binding 0 from the default 0, so the declaration is looked up.
+    // Comments are skipped; text inside an #if that is not compiled still counts (it can only suppress the notice).
+    bool declaresBlockBinding(const std::string& rawSource, const std::string& blockName)
+    {
+        if (blockName.empty() || rawSource.find(blockName)==std::string::npos) return false;
+        const std::string source = withoutComments(rawSource);
+        for (std::string::size_type at = source.find(blockName); at!=std::string::npos; at = source.find(blockName, at+1))
+        {
+            const std::string::size_type end = at+blockName.size();
+            if ((at>0 && isIdentifierChar(source[at-1])) || (end<source.size() && isIdentifierChar(source[end]))) continue;
+
+            std::string::size_type pos = at;
+            if (tokenBefore(source, pos)!="uniform") continue;
+
+            // walk back over the qualifiers before "uniform": identifiers and layout(...) groups, as many as there are
+            for (;;)
+            {
+                std::string::size_type before = pos;
+                const std::string token = tokenBefore(source, before);
+                if (!token.empty() && isIdentifierChar(token[0])) { pos = before; continue; }
+                if (token!=")") break;
+
+                // the matching parenthesis, by depth
+                const std::string::size_type close = before;
+                std::string::size_type open = close;
+                int depth = 1;
+                while (open>0 && depth>0)
+                {
+                    --open;
+                    if (source[open]==')') ++depth;
+                    else if (source[open]=='(') --depth;
+                }
+                if (depth!=0) break;
+
+                std::string::size_type layoutStart = open;
+                if (tokenBefore(source, layoutStart)!="layout") break;
+                if (containsWord(source.substr(open+1, close-open-1), "binding")) return true;
+                pos = layoutStart;
+            }
+        }
+        return false;
+    }
+}
+
 void Program::PerContextProgram::linkProgram(osg::State& state)
 {
     if( ! _needsLink ) return;
@@ -758,6 +871,7 @@ void Program::PerContextProgram::linkProgram(osg::State& state)
 
     _uniformInfoMap.clear();
     _attribInfoMap.clear();
+    _uniformBlockMap.clear();
     _lastAppliedUniformList.clear();
 
     if (!_loadedBinary)
@@ -875,7 +989,30 @@ void Program::PerContextProgram::linkProgram(osg::State& state)
             }
             else
             {
-                OSG_WARN << "uniform block " << blockName << " has no binding.\n";
+                // A block the shader binds with a layout qualifier is bound by the linker: its binding point is
+                // non-zero, or (an explicit binding 0 reads as the default 0) its declaration says so. Only a block
+                // with neither has no binding.
+                GLint linkedBinding = 0;
+                _extensions->glGetActiveUniformBlockiv(_glProgramHandle, itr->second._index,
+                                                       GL_UNIFORM_BLOCK_BINDING, &linkedBinding);
+                const std::string::size_type bracket = blockName.find('[');
+                const std::string declaredName = bracket==std::string::npos ? blockName : blockName.substr(0, bracket);
+                bool declared = linkedBinding!=0;
+                for (unsigned int i = 0; !declared && i<_program->getNumShaders(); ++i)
+                {
+                    const Shader* shader = _program->getShader(i);
+                    declared = shader!=0 && declaresBlockBinding(shader->getShaderSource(), declaredName);
+                }
+
+                if (declared)
+                {
+                    OSG_INFO << "uniform block " << blockName << ": " << itr->second._index
+                             << " binding: " << linkedBinding << " (layout qualifier)\n";
+                }
+                else
+                {
+                    OSG_WARN << "uniform block " << blockName << " has no binding.\n";
+                }
             }
         }
     }
