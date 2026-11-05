@@ -17,6 +17,11 @@
 
 #include <osgParticle/Export>
 
+/** Defined when osgParticle::ParticleSystem draws core-profile instanced quads (no CPU billboard, no GL_QUADS, no
+  * glPushAttrib, no built-in GLSL; the host supplies the program and calls setRenderParameters). Code that has to
+  * build against both this and an older osgParticle tests it. Fork tag B (ACT GL core native C11 P4). */
+#define OSGPARTICLE_CORE_DRAW 1
+
 extern "C" {
 
 /**
