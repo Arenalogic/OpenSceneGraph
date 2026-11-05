@@ -128,7 +128,7 @@ class OSG_EXPORT VertexArrayState : public osg::Referenced
         void setArray(ArrayDispatch* vad, osg::State& state, const osg::Array* new_array);
         void setArray(ArrayDispatch* vad, osg::State& state, GLint size, GLenum type, GLsizei stride, const GLvoid *ptr, GLboolean normalized);
 
-        inline void disable(ArrayDispatch* vad, osg::State& state) { vad->disable(state); vad->array=0; vad->modifiedCount=0xffffffff; vad->active=false; }
+        inline void disable(ArrayDispatch* vad, osg::State& state) { if (!vad) return; vad->disable(state); vad->array=0; vad->modifiedCount=0xffffffff; vad->active=false; }
 
         void setInterleavedArrays( osg::State& state, GLenum format, GLsizei stride, const GLvoid* pointer);
 
@@ -155,8 +155,8 @@ class OSG_EXPORT VertexArrayState : public osg::Referenced
         inline void disableTexCoordArray(osg::State& state, unsigned int unit) { disable(_texCoordArrays[unit].get(),state); }
         inline void disableTexCoordArrayAboveAndIncluding(osg::State& state, unsigned int index);
 
-        inline void setVertexAttribArray(osg::State& state, unsigned int unit, const osg::Array* array) { setArray(_vertexAttribArrays[unit].get(), state, array); }
-        inline void disableVertexAttribArray(osg::State& state, unsigned int unit) { disable(_vertexAttribArrays[unit].get(), state); }
+        inline void setVertexAttribArray(osg::State& state, unsigned int unit, const osg::Array* array) { setArray(unit<_vertexAttribArrays.size() ? _vertexAttribArrays[unit].get() : 0, state, array); }
+        inline void disableVertexAttribArray(osg::State& state, unsigned int unit) { if (unit<_vertexAttribArrays.size()) disable(_vertexAttribArrays[unit].get(), state); }
         inline void disableVertexAttribArrayAboveAndIncluding(osg::State& state, unsigned int index);
 
         /** Mark all the vertex attributes as being disabled but leave the disabling till a later call to applyDisablingOfVertexAttributes.*/

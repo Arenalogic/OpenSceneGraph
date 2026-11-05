@@ -567,7 +567,9 @@ bool VertexArrayState::correctArrayDispatchAssigned(const ArrayDispatch* ad)
 namespace {
     VertexArrayState::ArrayDispatch* getOrCreateVertexAttributeDispatch(VertexArrayState::ArrayDispatchList& list, int slot)
     {
-        list.resize(slot + 1);
+        // grow only: an unconditional resize(slot + 1) dropped the dispatchers above the slot, so under non-compact
+        // aliasing the global state kept null attribute dispatchers (slots 1, 6 and 7) and a generic array faulted
+        if (list.size() < static_cast<VertexArrayState::ArrayDispatchList::size_type>(slot + 1)) list.resize(slot + 1);
         osg::ref_ptr<VertexArrayState::ArrayDispatch>& ad = list[slot];
         if (!ad.valid())
             ad = new VertexAttribArrayDispatch(slot);
@@ -691,7 +693,7 @@ void VertexArrayState::assignTexCoordArrayDispatcher(unsigned int numUnits)
 
 void VertexArrayState::assignVertexAttribArrayDispatcher(unsigned int numUnits)
 {
-    _vertexAttribArrays.resize(numUnits);
+    if (_vertexAttribArrays.size() < numUnits) _vertexAttribArrays.resize(numUnits);
 
     for(unsigned int i=0; i<_vertexAttribArrays.size(); ++i)
     {
@@ -706,14 +708,15 @@ void VertexArrayState::assignAllDispatchers()
     unsigned int numUnits = 8;
     unsigned int numVertexAttrib = 16;
 
-    assignVertexAttribArrayDispatcher(numVertexAttrib);
-
     assignVertexArrayDispatcher();
     assignNormalArrayDispatcher();
     assignColorArrayDispatcher();
     assignSecondaryColorArrayDispatcher();
     assignFogCoordArrayDispatcher();
     assignTexCoordArrayDispatcher(numUnits);
+
+    // last, so every generic slot the aliased dispatchers left empty gets its dispatcher (the aliased ones are kept)
+    assignVertexAttribArrayDispatcher(numVertexAttrib);
 }
 
 void VertexArrayState::release()
@@ -725,6 +728,12 @@ void VertexArrayState::release()
 
 void VertexArrayState::setArray(ArrayDispatch* vad, osg::State& state, const osg::Array* new_array)
 {
+    if (!vad)
+    {
+        if (new_array) OSG_WARN << "Warning: VertexArrayState::setArray(..) has no dispatcher for this array; it is not set." << std::endl;
+        return;
+    }
+
     if (new_array)
     {
         if (!vad->active)
@@ -774,6 +783,12 @@ void VertexArrayState::setArray(ArrayDispatch* vad, osg::State& state, const osg
 
 void VertexArrayState::setArray(ArrayDispatch* vad, osg::State& state, GLint size, GLenum type, GLsizei stride, const GLvoid *ptr, GLboolean normalized)
 {
+    if (!vad)
+    {
+        OSG_WARN << "Warning: VertexArrayState::setArray(..) has no dispatcher for this array; it is not set." << std::endl;
+        return;
+    }
+
     if(!vad->array){
 
         if (!vad->active)
