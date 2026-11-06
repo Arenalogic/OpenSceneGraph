@@ -400,7 +400,15 @@ void TextBase::setDrawMode(unsigned int mode)
 {
     if (_drawMode==mode) return;
 
+    const unsigned int decorations = FILLEDBOUNDINGBOX | BOUNDINGBOX | ALIGNMENT;
+    const bool decorationsChanged = (_drawMode & decorations) != (mode & decorations);
+
     _drawMode=mode;
+
+    // The decorations are vertices and primitives built by setupDecoration() at the end of
+    // computeGlyphRepresentation(); a change of the decoration modes has to rebuild them (and dirty the
+    // drawable's GL objects there), or the text keeps drawing the decorations of its previous mode.
+    if (decorationsChanged) computeGlyphRepresentation();
 }
 
 
@@ -411,7 +419,9 @@ void TextBase::setBoundingBoxMargin(float margin)
 
     _textBBMargin = margin;
 
-    computePositions();
+    // The margin moves the bounding box decorations, which setupDecoration() builds into the text's arrays:
+    // rebuild them (computeGlyphRepresentation() also computes the positions).
+    computeGlyphRepresentation();
 }
 
 
@@ -786,6 +796,7 @@ void TextBase::setupDecoration()
         primitives->push_back(base+3);
 
         _coords->dirty();
+        _texcoords->dirty();
         primitives->dirty();
     }
 
@@ -821,6 +832,7 @@ void TextBase::setupDecoration()
             primitives->push_back(base+3);
 
             _coords->dirty();
+            _texcoords->dirty();
             primitives->dirty();
         }
         else
@@ -901,6 +913,7 @@ void TextBase::setupDecoration()
             primitives->push_back(base+7);
 
             _coords->dirty();
+            _texcoords->dirty();
             primitives->dirty();
         }
     }
@@ -938,6 +951,7 @@ void TextBase::setupDecoration()
         primitives->push_back(base+3);
 
         _coords->dirty();
+        _texcoords->dirty();
         primitives->dirty();
     }
 }

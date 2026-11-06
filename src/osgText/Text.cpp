@@ -957,8 +957,12 @@ void Text::computeColorGradients()
             computeColorGradientsOverall();
             break;
         default:
-            break;
+            return;
     }
+
+    // The gradient routines rewrite the colours in place: without a new modified count the colour entry of
+    // the shared buffer is not uploaded again when the size is unchanged.
+    if (_colorCoords.valid()) _colorCoords->dirty();
 }
 
 void Text::computeColorGradientsOverall()
