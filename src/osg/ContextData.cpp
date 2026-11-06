@@ -13,6 +13,7 @@
 
 #include <osg/ContextData>
 #include <osg/FrameStamp>
+#include <osg/GLExtensions>
 #include <OpenThreads/ReentrantMutex>
 #include <algorithm>
 
@@ -158,6 +159,9 @@ unsigned int ContextData::createNewContextID()
     {
         if (!itr->second || itr->second->getNumContexts() == 0)
         {
+            // a new context gets this ID: nothing recorded for the ID's previous context carries over
+            GLExtensions::Release(itr->first);
+
             itr->second = new ContextData(itr->first);
             itr->second->setNumContexts(1);
 
@@ -219,6 +223,10 @@ void ContextData::decrementContextIDUsageCount(unsigned int contextID)
 
         if (s_contextIDMap[contextID]->getNumContexts()==0)
         {
+            // no context uses the ID any more: forget its GLExtensions, so that the next context given the ID
+            // (createNewContextID reuses it) does not inherit this one's GL and GLSL versions and extensions
+            GLExtensions::Release(contextID);
+
             s_contextIDMap[contextID] = 0;
         }
     }

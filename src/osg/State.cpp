@@ -183,10 +183,13 @@ State::~State()
     // delete the GLExtensions object associated with this osg::State.
     if (_glExtensions)
     {
-        _glExtensions = 0;
+        osg::ref_ptr<GLExtensions> mine;
+        mine.swap(_glExtensions);
         GLExtensions* glExtensions = GLExtensions::Get(_contextID, false);
-        if (glExtensions && glExtensions->referenceCount() == 1) {
-            // the only reference left to the extension is in the static map itself, so we clean it up now
+        // only this State's own GLExtensions: the context ID may already belong to a newer context (ContextData
+        // reuses released IDs), whose GLExtensions this State must not drop
+        if (glExtensions == mine.get() && glExtensions->referenceCount() == 2) {
+            // the only references left to the extension are the static map's and mine, so we clean it up now
             GLExtensions::Set(_contextID, 0);
         }
     }

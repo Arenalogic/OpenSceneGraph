@@ -183,6 +183,13 @@ class OSG_EXPORT GLExtensions : public osg::Referenced
           * but need to ensure that they all use the same low common denominator extensions.*/
         static void Set(unsigned int in_contextID, GLExtensions* extensions);
 
+        /** Forget what was recorded for a context ID: its GLExtensions and the extension set, renderer and
+          * initialisation that isGLExtensionSupported() cached for it. ContextData calls it when no graphics context
+          * uses the ID any more, so the next context given the (reused) ID queries its own version, GLSL version and
+          * extensions. Objects that still hold the old GLExtensions (a Program's per context data that was never
+          * released) keep their own reference. */
+        static void Release(unsigned int in_contextID);
+
         // C++-friendly convenience wrapper methods
         GLuint getCurrentProgram() const;
         bool getProgramInfoLog( GLuint program, std::string& result ) const;

@@ -451,6 +451,14 @@ void GLExtensions::Set(unsigned int in_contextID, GLExtensions* extensions)
     s_extensions[in_contextID] = extensions;
 }
 
+void GLExtensions::Release(unsigned int in_contextID)
+{
+    s_extensions[in_contextID] = 0;
+    s_glExtensionSetList[in_contextID] = ExtensionSet();
+    s_glRendererList[in_contextID] = std::string();
+    s_glInitializedList[in_contextID] = 0;
+}
+
 ///////////////////////////////////////////////////////////////////////////
 // Extension function pointers for OpenGL v2.x
 
@@ -1335,10 +1343,9 @@ GLExtensions::GLExtensions(unsigned int in_contextID):
 
 GLExtensions::~GLExtensions()
 {
-    // Remove s_gl*List
-    s_glExtensionSetList[contextID] = ExtensionSet();
-    s_glRendererList[contextID] = std::string();
-    s_glInitializedList[contextID] = 0;
+    // The s_gl*List entries of contextID are cleared by Release(), when no context uses the ID any more: a
+    // GLExtensions destroyed later (held past its context by an unreleased per context object) must not clear what
+    // the next context with the same ID recorded.
 }
 
 ///////////////////////////////////////////////////////////////////////////
