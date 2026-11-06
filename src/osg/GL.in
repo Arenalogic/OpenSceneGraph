@@ -114,6 +114,26 @@
 @OPENGL_HEADER1@
 @OPENGL_HEADER2@
 
+#if defined(__gl_glcorearb_h_)
+    // A GLCORE build includes <GL/glcorearb.h> in place of <GL/gl.h>. Khronos: "Do not #include both <GL/glcorearb.h>
+    // and either of <GL/gl.h> or <GL/glext.h> in the same source file." A later <GL/gl.h> (Qt's qopengl.h, a vendor
+    // SDK header) would redeclare the GL 1.x entry points with another linkage (MSVC C2375) and declare compatibility
+    // profile API, so the include guards of gl.h (Mesa/Khronos __gl_h_, Windows SDK __GL_H__) and glext.h (__gl_glext_h_,
+    // the older __glext_h_ that Qt's qopenglext.h uses) are set here: those headers become no-ops after <osg/GL>.
+    #ifndef __gl_h_
+        #define __gl_h_
+    #endif
+    #ifndef __GL_H__
+        #define __GL_H__
+    #endif
+    #ifndef __gl_glext_h_
+        #define __gl_glext_h_ 1
+    #endif
+    #ifndef __glext_h_
+        #define __glext_h_ 1
+    #endif
+#endif
+
 
 #ifndef GL_APIENTRY
     #define GL_APIENTRY APIENTRY
