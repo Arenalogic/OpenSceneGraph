@@ -465,6 +465,11 @@ void Text::computeGlyphRepresentation()
         }
     }
 
+    // The arrays are rebuilt: a VertexArrayState that keeps a VAO (forced on a GL3/core build, or the
+    // VERTEX_ARRAY_OBJECT hint) only sets its arrays again, and so only recompiles their buffer, when it is
+    // dirty; Drawable::draw leaves it clean for a non-DYNAMIC drawable. Without this, a Text first drawn
+    // empty keeps a VAO on a zero-sized vertex buffer and later draws its glyph indices against it.
+    dirtyGLObjects();
 
     _lineCount = 0;
 

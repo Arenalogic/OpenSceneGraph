@@ -246,6 +246,9 @@ void Text3D::computeGlyphRepresentation()
 {
     if (_font.valid() == false) return;
 
+    // The arrays are rebuilt: a VAO-backed VertexArrayState sets them again only when dirty (see Text.cpp).
+    dirtyGLObjects();
+
     _textRenderInfo.clear();
     _lineCount = 0;
 
