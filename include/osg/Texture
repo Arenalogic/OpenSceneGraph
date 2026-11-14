@@ -62,9 +62,20 @@
     #define GL_COMPRESSED_RGBA_S3TC_DXT1_EXT        0x83F1
     #define GL_COMPRESSED_RGBA_S3TC_DXT3_EXT        0x83F2
     #define GL_COMPRESSED_RGBA_S3TC_DXT5_EXT        0x83F3
+#endif
+
+// The sRGB S3TC formats come from EXT_texture_sRGB, not EXT_texture_compression_s3tc:
+// <GL/glcorearb.h> (a GLCORE build) defines GL_EXT_texture_compression_s3tc without them.
+#ifndef GL_COMPRESSED_SRGB_S3TC_DXT1_EXT
     #define GL_COMPRESSED_SRGB_S3TC_DXT1_EXT        0x8C4C
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT
     #define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT  0x8C4D
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT
     #define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT  0x8C4E
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT
     #define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT  0x8C4F
 #endif
 
