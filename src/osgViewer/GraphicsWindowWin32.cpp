@@ -742,7 +742,9 @@ Win32WindowingSystem::OpenGLContext::~OpenGLContext()
 
     if (_hglrc)
     {
-        ::wglMakeCurrent(_hdc, NULL);
+        // Only this context is released: wglMakeCurrent(_, NULL) releases whatever is current, which is the context
+        // just restored above, so a window realized while another context was current left none current.
+        if (::wglGetCurrentContext()==_hglrc) ::wglMakeCurrent(_hdc, NULL);
         ::wglDeleteContext(_hglrc);
         _hglrc = 0;
     }
@@ -764,8 +766,11 @@ bool Win32WindowingSystem::OpenGLContext::makeCurrent( HDC restoreOnHdc, bool re
 {
     if (_hdc==0 || _hglrc==0) return false;
 
+    // The context is restored on the DC it was current on. restoreOnHdc is the DC of the window being set up
+    // (setPixelFormat), so ~OpenGLContext made the previous context current on that window's drawable, or failed
+    // when the pixel formats differ.
     _previousHglrc = restorePreviousOnExit ? ::wglGetCurrentContext() : 0;
-    _previousHdc   = restoreOnHdc;
+    _previousHdc   = _previousHglrc ? ::wglGetCurrentDC() : restoreOnHdc;
 
     if (_hglrc==_previousHglrc) return true;
 
