@@ -11,6 +11,7 @@
  * OpenSceneGraph Public License for more details.
 */
 #include <osg/GL>
+#include <osg/State>
 #include <osg/TexMat>
 #include <osg/Notify>
 #include <osg/TextureRectangle>
@@ -44,6 +45,6 @@ void TexMat::apply(State& state) const
 
     glMatrixMode( GL_MODELVIEW );
 #else
-    OSG_NOTICE<<"Warning: TexMat::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }

@@ -11,6 +11,7 @@
  * OpenSceneGraph Public License for more details.
 */
 #include <osg/Light>
+#include <osg/State>
 #include <osg/StateSet>
 #include <osg/Notify>
 
@@ -81,7 +82,7 @@ void Light::captureLightState()
     glGetLightfv( (GLenum)((int)GL_LIGHT0 + _lightnum), GL_LINEAR_ATTENUATION,   &_linear_attenuation );
     glGetLightfv( (GLenum)((int)GL_LIGHT0 + _lightnum), GL_QUADRATIC_ATTENUATION,   &_quadratic_attenuation );
 #else
-    OSG_NOTICE<<"Warning: Light::captureLightState() - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className(), "captureLightState");
 #endif
 }
 
@@ -99,6 +100,6 @@ void Light::apply(State&) const
     glLightf ( (GLenum)((int)GL_LIGHT0 + _lightnum), GL_LINEAR_ATTENUATION,    _linear_attenuation );
     glLightf ( (GLenum)((int)GL_LIGHT0 + _lightnum), GL_QUADRATIC_ATTENUATION, _quadratic_attenuation );
 #else
-    OSG_NOTICE<<"Warning: Light::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }

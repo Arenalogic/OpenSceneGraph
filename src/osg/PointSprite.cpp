@@ -77,7 +77,7 @@ void PointSprite::apply(osg::State& state) const
         extensions->glPointParameteri(GL_POINT_SPRITE_COORD_ORIGIN, _coordOriginMode);
 
 #else
-    OSG_NOTICE<<"Warning: PointSprite::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 
 #endif
 }

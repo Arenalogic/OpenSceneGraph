@@ -140,7 +140,7 @@ void VertexProgram::apply(State& state) const
         glMatrixMode(GL_MODELVIEW); // restore matrix mode
     }
 #else
-    OSG_NOTICE<<"Warning: VertexProgram::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }
 

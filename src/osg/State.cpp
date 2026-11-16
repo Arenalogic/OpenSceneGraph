@@ -21,6 +21,9 @@
 #include <osg/PointSprite>
 #include <osg/os_utils>
 
+#include <OpenThreads/Mutex>
+#include <OpenThreads/ScopedLock>
+
 #include <sstream>
 #include <algorithm>
 
@@ -56,6 +59,207 @@ using namespace std;
 using namespace osg;
 
 static ApplicationUsageProxy State_e0(ApplicationUsage::ENVIRONMENTAL_VARIABLE,"OSG_GL_ERROR_CHECKING <type>","ONCE_PER_ATTRIBUTE | ON | on enables fine grained checking,  ONCE_PER_FRAME enables coarse grained checking");
+
+namespace
+{
+    struct NamedMode { GLenum mode; const char* name; };
+
+    // The glEnable capabilities the core profile does not have (the OpenGL 4.6 compatibility profile's enables minus the
+    // core list below), plus OSG's texture modes that were never a glEnable capability on any profile (TextureGLModeSet in
+    // StateSet.cpp). Sorted by value. On a build without fixed function State creates these invalid (State::ModeMap).
+    const NamedMode s_fixedFunctionModes[] =
+    {
+        {0x0B10, "GL_POINT_SMOOTH"},
+        {0x0B24, "GL_LINE_STIPPLE"},
+        {0x0B42, "GL_POLYGON_STIPPLE"},
+        {0x0B50, "GL_LIGHTING"},
+        {0x0B57, "GL_COLOR_MATERIAL"},
+        {0x0B60, "GL_FOG"},
+        {0x0BA1, "GL_NORMALIZE"},
+        {0x0BC0, "GL_ALPHA_TEST"},
+        {0x0BF1, "GL_INDEX_LOGIC_OP"},
+        {0x0C60, "GL_TEXTURE_GEN_S"},
+        {0x0C61, "GL_TEXTURE_GEN_T"},
+        {0x0C62, "GL_TEXTURE_GEN_R"},
+        {0x0C63, "GL_TEXTURE_GEN_Q"},
+        {0x0D80, "GL_AUTO_NORMAL"},
+        {0x0D90, "GL_MAP1_COLOR_4"},
+        {0x0D91, "GL_MAP1_INDEX"},
+        {0x0D92, "GL_MAP1_NORMAL"},
+        {0x0D93, "GL_MAP1_TEXTURE_COORD_1"},
+        {0x0D94, "GL_MAP1_TEXTURE_COORD_2"},
+        {0x0D95, "GL_MAP1_TEXTURE_COORD_3"},
+        {0x0D96, "GL_MAP1_TEXTURE_COORD_4"},
+        {0x0D97, "GL_MAP1_VERTEX_3"},
+        {0x0D98, "GL_MAP1_VERTEX_4"},
+        {0x0DB0, "GL_MAP2_COLOR_4"},
+        {0x0DB1, "GL_MAP2_INDEX"},
+        {0x0DB2, "GL_MAP2_NORMAL"},
+        {0x0DB3, "GL_MAP2_TEXTURE_COORD_1"},
+        {0x0DB4, "GL_MAP2_TEXTURE_COORD_2"},
+        {0x0DB5, "GL_MAP2_TEXTURE_COORD_3"},
+        {0x0DB6, "GL_MAP2_TEXTURE_COORD_4"},
+        {0x0DB7, "GL_MAP2_VERTEX_3"},
+        {0x0DB8, "GL_MAP2_VERTEX_4"},
+        {0x0DE0, "GL_TEXTURE_1D"},
+        {0x0DE1, "GL_TEXTURE_2D"},
+        {0x4000, "GL_LIGHT0"},
+        {0x4001, "GL_LIGHT1"},
+        {0x4002, "GL_LIGHT2"},
+        {0x4003, "GL_LIGHT3"},
+        {0x4004, "GL_LIGHT4"},
+        {0x4005, "GL_LIGHT5"},
+        {0x4006, "GL_LIGHT6"},
+        {0x4007, "GL_LIGHT7"},
+        {0x8010, "GL_CONVOLUTION_1D"},
+        {0x8011, "GL_CONVOLUTION_2D"},
+        {0x8012, "GL_SEPARABLE_2D"},
+        {0x8024, "GL_HISTOGRAM"},
+        {0x802E, "GL_MINMAX"},
+        {0x803A, "GL_RESCALE_NORMAL"},
+        {0x806F, "GL_TEXTURE_3D"},
+        {0x80D0, "GL_COLOR_TABLE"},
+        {0x80D1, "GL_POST_CONVOLUTION_COLOR_TABLE"},
+        {0x80D2, "GL_POST_COLOR_MATRIX_COLOR_TABLE"},
+        {0x8458, "GL_COLOR_SUM"},
+        {0x84F5, "GL_TEXTURE_RECTANGLE"},
+        {0x8513, "GL_TEXTURE_CUBE_MAP"},
+        {0x8620, "GL_VERTEX_PROGRAM_ARB"},
+        {0x8643, "GL_VERTEX_PROGRAM_TWO_SIDE"},
+        {0x8804, "GL_FRAGMENT_PROGRAM_ARB"},
+        {0x8861, "GL_POINT_SPRITE"},
+        {0x8C1A, "GL_TEXTURE_2D_ARRAY"},
+        {0x8C2A, "GL_TEXTURE_BUFFER"},
+        {0x9100, "GL_TEXTURE_2D_MULTISAMPLE"},
+        {0x9102, "GL_TEXTURE_2D_MULTISAMPLE_ARRAY"},
+    };
+
+    // The glEnable capabilities of the OpenGL 4.6 core profile (glEnable's reference page; GL_CLIP_DISTANCEn shares its
+    // value with the old GL_CLIP_PLANEn, GL_PROGRAM_POINT_SIZE with GL_VERTEX_PROGRAM_POINT_SIZE). Sorted by value.
+    const NamedMode s_coreModes[] =
+    {
+        {0x0B20, "GL_LINE_SMOOTH"},
+        {0x0B41, "GL_POLYGON_SMOOTH"},
+        {0x0B44, "GL_CULL_FACE"},
+        {0x0B71, "GL_DEPTH_TEST"},
+        {0x0B90, "GL_STENCIL_TEST"},
+        {0x0BD0, "GL_DITHER"},
+        {0x0BE2, "GL_BLEND"},
+        {0x0BF2, "GL_COLOR_LOGIC_OP"},
+        {0x0C11, "GL_SCISSOR_TEST"},
+        {0x2A01, "GL_POLYGON_OFFSET_POINT"},
+        {0x2A02, "GL_POLYGON_OFFSET_LINE"},
+        {0x3000, "GL_CLIP_DISTANCE0"},
+        {0x3001, "GL_CLIP_DISTANCE1"},
+        {0x3002, "GL_CLIP_DISTANCE2"},
+        {0x3003, "GL_CLIP_DISTANCE3"},
+        {0x3004, "GL_CLIP_DISTANCE4"},
+        {0x3005, "GL_CLIP_DISTANCE5"},
+        {0x3006, "GL_CLIP_DISTANCE6"},
+        {0x3007, "GL_CLIP_DISTANCE7"},
+        {0x8037, "GL_POLYGON_OFFSET_FILL"},
+        {0x809D, "GL_MULTISAMPLE"},
+        {0x809E, "GL_SAMPLE_ALPHA_TO_COVERAGE"},
+        {0x809F, "GL_SAMPLE_ALPHA_TO_ONE"},
+        {0x80A0, "GL_SAMPLE_COVERAGE"},
+        {0x8242, "GL_DEBUG_OUTPUT_SYNCHRONOUS"},
+        {0x8642, "GL_PROGRAM_POINT_SIZE"},
+        {0x864F, "GL_DEPTH_CLAMP"},
+        {0x884F, "GL_TEXTURE_CUBE_MAP_SEAMLESS"},
+        {0x8C36, "GL_SAMPLE_SHADING"},
+        {0x8C89, "GL_RASTERIZER_DISCARD"},
+        {0x8D69, "GL_PRIMITIVE_RESTART_FIXED_INDEX"},
+        {0x8DB9, "GL_FRAMEBUFFER_SRGB"},
+        {0x8E51, "GL_SAMPLE_MASK"},
+        {0x8F9D, "GL_PRIMITIVE_RESTART"},
+        {0x92E0, "GL_DEBUG_OUTPUT"},
+    };
+
+    template<size_t N>
+    const NamedMode* findMode(const NamedMode (&table)[N], GLenum mode)
+    {
+        const NamedMode* end = table + N;
+        const NamedMode* found = std::lower_bound(table, end, mode,
+                                                  [](const NamedMode& entry, GLenum value) { return entry.mode < value; });
+        return (found != end && found->mode == mode) ? found : 0;
+    }
+
+    // The refusal record: one entry per mode or attribute kind, in first-seen order, warned the first time it is seen.
+    struct RefusalRecord
+    {
+        OpenThreads::Mutex                       mutex;
+        std::vector<State::FixedFunctionRefusal> entries;
+
+        void note(const std::string& what, const std::string& warning)
+        {
+            {
+                OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mutex);
+                for (std::vector<State::FixedFunctionRefusal>::iterator itr = entries.begin(); itr != entries.end(); ++itr)
+                {
+                    if (itr->what == what) { ++itr->count; return; }
+                }
+                State::FixedFunctionRefusal entry;
+                entry.what = what;
+                entry.count = 1;
+                entries.push_back(entry);
+            }
+            OSG_WARN << warning << std::endl;
+        }
+    };
+
+    RefusalRecord& refusalRecord()
+    {
+        static RefusalRecord s_record;
+        return s_record;
+    }
+}
+
+State::ModeClass State::classifyMode(StateAttribute::GLMode mode)
+{
+    if (findMode(s_coreModes, mode)) return CORE_MODE;
+    if (findMode(s_fixedFunctionModes, mode)) return FIXED_FUNCTION_MODE;
+    return UNKNOWN_MODE;
+}
+
+const char* State::getModeName(StateAttribute::GLMode mode)
+{
+    if (const NamedMode* core = findMode(s_coreModes, mode)) return core->name;
+    if (const NamedMode* fixedFunction = findMode(s_fixedFunctionModes, mode)) return fixedFunction->name;
+    return 0;
+}
+
+void State::noteRefusedMode(StateAttribute::GLMode mode)
+{
+    const char* name = getModeName(mode);
+    std::ostringstream what;
+    what << "mode " << (name ? name : "?") << " (0x" << std::hex << mode << ")";
+    refusalRecord().note(what.str(),
+        "osg::State (built without fixed function) refuses fixed-function " + what.str() + ": it stays on its StateSet as "
+        "data and never reaches glEnable (reported once per process; locate the StateSet with dtRender::CoreStateAudit)");
+}
+
+void State::noteRefusedAttribute(const char* libraryName, const char* className, const char* detail)
+{
+    std::string what = std::string("attribute ") + (libraryName ? libraryName : "osg") + "::" + (className ? className : "?");
+    if (detail) what += std::string(" (") + detail + ")";
+    refusalRecord().note(what,
+        "osg::State (built without fixed function) refuses fixed-function " + what + ": its apply() sets nothing; it stays "
+        "readable as data (reported once per process)");
+}
+
+std::vector<State::FixedFunctionRefusal> State::getFixedFunctionRefusals()
+{
+    RefusalRecord& record = refusalRecord();
+    OpenThreads::ScopedLock<OpenThreads::Mutex> lock(record.mutex);
+    return record.entries;
+}
+
+void State::resetFixedFunctionRefusals()
+{
+    RefusalRecord& record = refusalRecord();
+    OpenThreads::ScopedLock<OpenThreads::Mutex> lock(record.mutex);
+    record.entries.clear();
+}
 
 State::State():
     Referenced(true)
@@ -174,6 +378,7 @@ State::State():
     _gpuTick = 0;
     _gpuTimestamp = 0;
     _timestampBits = 0;
+    _forwardCompatible = false;
 
     _vas = 0;
 }
@@ -226,6 +431,16 @@ void State::initializeExtensionProcs()
     _isFogCoordSupported = osg::isGLExtensionSupported(_contextID,"GL_EXT_fog_coord");
     _isVertexBufferObjectSupported = OSG_GLES2_FEATURES || OSG_GLES3_FEATURES || OSG_GL3_FEATURES || osg::isGLExtensionSupported(_contextID,"GL_ARB_vertex_buffer_object");
     _isVertexArrayObjectSupported = _glExtensions->isVAOSupported;
+
+#if !defined(OSG_GLES1_AVAILABLE) && !defined(OSG_GLES2_AVAILABLE)
+    // A forward-compatible context raises errors for the deprecated state the core profile kept (glLineWidth above 1).
+    if (_glExtensions->glVersion>=3.0f)
+    {
+        GLint contextFlags = 0;
+        glGetIntegerv(GL_CONTEXT_FLAGS, &contextFlags);
+        _forwardCompatible = (contextFlags & GL_CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT)!=0;
+    }
+#endif
 
 #if defined(OSG_GL_FIXED_FUNCTION_AVAILABLE) && !defined(OSG_GLES1_AVAILABLE)
     // a core profile context (or a forward compatible 3.0/3.1 context) has no glClipPlane, even in a build with fixed function
@@ -330,7 +545,8 @@ void State::initializeExtensionProcs()
         }
     }
 
-    // set the validity of Modes
+    // set the validity of Modes (a build without fixed function has no point sprite mode at all: ModeMap refuses it)
+#if defined(OSG_GL_FIXED_FUNCTION_AVAILABLE) || defined(OSG_GLES1_AVAILABLE)
     {
         bool pointSpriteModeValid = _glExtensions->isPointSpriteModeSupported;
 
@@ -340,6 +556,7 @@ void State::initializeExtensionProcs()
         setModeValidity(GL_POINT_SPRITE_ARB, pointSpriteModeValid);
     #endif
     }
+#endif
 
 
     _extensionProcsInitialized = true;

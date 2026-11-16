@@ -330,8 +330,55 @@ class OSG_EXPORT State : public Referenced
         inline void setModeValidity(StateAttribute::GLMode mode,bool valid)
         {
             ModeStack& ms = _modeMap[mode];
+#if !defined(OSG_GL_FIXED_FUNCTION_AVAILABLE)
+            // A build without fixed function has no such mode on any context (ModeMap): it cannot be made valid.
+            if (valid && isFixedFunctionMode(mode)) return;
+#endif
             ms.valid = valid;
         }
+
+        /** What the core profile says about a glEnable capability (the OpenGL 4.6 core and compatibility tables). */
+        enum ModeClass
+        {
+            CORE_MODE,              ///< defined for glEnable by the core profile
+            FIXED_FUNCTION_MODE,    ///< defined only by the compatibility profile, or never a glEnable capability at all (OSG's texture modes)
+            UNKNOWN_MODE            ///< neither table: an extension's capability, passed through
+        };
+
+        /** The class of a mode (the tables in State.cpp). Independent of the build and the context.*/
+        static ModeClass classifyMode(StateAttribute::GLMode mode);
+
+        /** Whether a mode is FIXED_FUNCTION_MODE: on a build without fixed function, State never applies it.*/
+        static bool isFixedFunctionMode(StateAttribute::GLMode mode) { return classifyMode(mode)==FIXED_FUNCTION_MODE; }
+
+        /** The name of a mode in the tables ("GL_LIGHTING"), or NULL for one in neither.*/
+        static const char* getModeName(StateAttribute::GLMode mode);
+
+        /** One kind of fixed-function state a build without fixed function refused, and how often.*/
+        struct FixedFunctionRefusal
+        {
+            std::string     what;   ///< "mode GL_LIGHTING (0x0b50)" or "attribute osg::Material"
+            unsigned int    count;  ///< mode: map entries created for it; attribute: applies
+        };
+
+        /** Records that a fixed-function mode was refused (a map entry created invalid). The first refusal of each mode in
+          * the process is warned once; later ones only count. Thread safe.*/
+        static void noteRefusedMode(StateAttribute::GLMode mode);
+
+        /** Records that a legacy attribute's apply() did nothing on a build without fixed function (detail: what part of a
+          * partly core attribute, or NULL). Warned once per class and detail in the process, then counted. Thread safe.*/
+        static void noteRefusedAttribute(const char* libraryName, const char* className, const char* detail=0);
+
+        /** Every refusal recorded in this process so far, in first-seen order.*/
+        static std::vector<FixedFunctionRefusal> getFixedFunctionRefusals();
+
+        /** Forgets the recorded refusals (tests); the next refusal of each kind is warned again.*/
+        static void resetFixedFunctionRefusals();
+
+        /** Whether the context is forward-compatible (GL_CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT, read when the extension
+          * procs are initialized): such a context raises errors for state the core profile deprecated but kept, such as
+          * glLineWidth above 1.*/
+        bool isForwardCompatible() const { return _forwardCompatible; }
 
         /** Get whether a particular OpenGL mode is valid in the current graphics context.
           * Use to disable OpenGL modes that are not supported by current graphics drivers/context.*/
@@ -1072,7 +1119,30 @@ class OSG_EXPORT State : public Referenced
 
         };
 
-        typedef std::map<StateAttribute::GLMode,ModeStack>              ModeMap;
+        /** The modes of one map: the global modes, or one texture unit's. Every entry is created by operator[] (the
+          * map is never filled another way). On an OSG built without fixed function (OSG_GL_FIXED_FUNCTION_AVAILABLE
+          * undefined: the GLCORE profile) a mode the core profile does not define for glEnable is created invalid
+          * (isFixedFunctionMode): it stays on its StateSet as data and never reaches glEnable/glDisable, in every map,
+          * on every texture unit and after any releaseGLObjects; its first refusal is recorded (noteRefusedMode).*/
+        struct ModeMap : public std::map<StateAttribute::GLMode,ModeStack>
+        {
+            ModeStack& operator[](StateAttribute::GLMode mode)
+            {
+                iterator itr = lower_bound(mode);
+                if (itr==end() || itr->first!=mode)
+                {
+                    itr = insert(itr, value_type(mode, ModeStack()));
+#if !defined(OSG_GL_FIXED_FUNCTION_AVAILABLE)
+                    if (State::isFixedFunctionMode(mode))
+                    {
+                        itr->second.valid = false;
+                        State::noteRefusedMode(mode);
+                    }
+#endif
+                }
+                return itr->second;
+            }
+        };
         typedef std::vector<ModeMap>                                    TextureModeMapList;
 
         typedef std::map<StateAttribute::TypeMemberPair,AttributeStack> AttributeMap;
@@ -1431,6 +1501,7 @@ class OSG_EXPORT State : public Referenced
         Timer_t                      _gpuTick;
         GLuint64                     _gpuTimestamp;
         int                          _timestampBits;
+        bool                         _forwardCompatible;
 };
 
 inline void State::pushModeList(ModeMap& modeMap,const StateSet::ModeList& modeList)

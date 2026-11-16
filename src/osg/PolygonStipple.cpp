@@ -11,6 +11,7 @@
  * OpenSceneGraph Public License for more details.
 */
 #include <osg/GL>
+#include <osg/State>
 #include <osg/PolygonStipple>
 #include <osg/Notify>
 
@@ -84,7 +85,7 @@ void PolygonStipple::apply(State&) const
 #ifdef OSG_GL1_AVAILABLE
     glPolygonStipple(_mask);
 #else
-    OSG_NOTICE<<"Warning: PolygonStipple::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }
 

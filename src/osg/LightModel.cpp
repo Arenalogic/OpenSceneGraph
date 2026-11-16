@@ -82,7 +82,7 @@ void LightModel::apply(State& state) const
 
 void LightModel::apply(State&) const
 {
-    OSG_NOTICE<<"Warning: LightModel::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 }
 
 #endif

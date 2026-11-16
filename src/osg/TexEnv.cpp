@@ -48,6 +48,6 @@ void TexEnv::apply(State& state) const
         }
     }
 #else
-    OSG_NOTICE<<"Warning: TexEnv::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }

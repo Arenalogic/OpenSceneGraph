@@ -12,6 +12,7 @@
 */
 #include <osg/GL>
 #include <osg/LineWidth>
+#include <osg/State>
 #include <osg/Notify>
 
 using namespace osg;
@@ -32,8 +33,16 @@ void LineWidth::setWidth( float width )
     _width = width;
 }
 
-void LineWidth::apply(State&) const
+void LineWidth::apply(State& state) const
 {
+    // A forward-compatible context raises GL_INVALID_VALUE for a width above 1 (wide lines are deprecated) and keeps the
+    // previous width: draw 1 and record the refusal. Wide strokes are drawn by geometry (dtRender's stroke shaders).
+    if (_width>1.0f && state.isForwardCompatible())
+    {
+        glLineWidth(1.0f);
+        State::noteRefusedAttribute(libraryName(), className(), "a width above 1 on a forward-compatible context");
+        return;
+    }
     glLineWidth(_width);
 }
 

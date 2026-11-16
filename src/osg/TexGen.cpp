@@ -11,6 +11,7 @@
  * OpenSceneGraph Public License for more details.
 */
 #include <osg/TexGen>
+#include <osg/State>
 #include <osg/Notify>
 #include <osg/io_utils>
 
@@ -126,6 +127,6 @@ void TexGen::apply(State&) const
         glTexGeni( GL_T, GL_TEXTURE_GEN_MODE, _mode );
     }
 #else
-    OSG_NOTICE<<"Warning: TexGen::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }

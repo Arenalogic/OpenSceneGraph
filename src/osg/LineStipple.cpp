@@ -11,6 +11,7 @@
  * OpenSceneGraph Public License for more details.
 */
 #include <osg/GL>
+#include <osg/State>
 #include <osg/LineStipple>
 #include <osg/Notify>
 
@@ -43,7 +44,7 @@ void LineStipple::apply(State&) const
 #ifdef OSG_GL1_AVAILABLE
     glLineStipple(_factor, _pattern);
 #else
-    OSG_NOTICE<<"Warning: LineStipple::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }
 

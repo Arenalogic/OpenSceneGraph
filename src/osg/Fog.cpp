@@ -68,6 +68,6 @@ void Fog::apply(State& state) const
     }
 
 #else
-    OSG_NOTICE<<"Warning: Fog::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }

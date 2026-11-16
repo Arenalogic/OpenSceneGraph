@@ -93,7 +93,19 @@ void Point::apply(State& state) const
     extensions->glPointParameterf(GL_POINT_FADE_THRESHOLD_SIZE, _fadeThresholdSize);
     extensions->glPointParameterf(GL_POINT_SIZE_MIN, _minSize);
     extensions->glPointParameterf(GL_POINT_SIZE_MAX, _maxSize);
+#elif defined(OSG_GL3_AVAILABLE)
+    // The core half: the size (drawn where GL_PROGRAM_POINT_SIZE is off) and the fade threshold. Distance attenuation and
+    // the min/max clamp are fixed-function point parameters; a core context has none, so they are refused when set.
+    glPointSize(_size);
+
+    const GLExtensions* extensions = state.get<GLExtensions>();
+    if (extensions->glPointParameterf) extensions->glPointParameterf(GL_POINT_FADE_THRESHOLD_SIZE, _fadeThresholdSize);
+
+    if (_distanceAttenuation!=Vec3(1.0f, 0.0f, 0.0f) || _minSize!=0.0f || _maxSize!=100.0f)
+    {
+        State::noteRefusedAttribute(libraryName(), className(), "distance attenuation, minimum and maximum size");
+    }
 #else
-    OSG_NOTICE<<"Warning: Point::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }

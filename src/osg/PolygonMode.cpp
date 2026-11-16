@@ -12,6 +12,7 @@
 */
 #include <osg/GL>
 #include <osg/PolygonMode>
+#include <osg/State>
 #include <osg/Notify>
 
 using namespace osg;
@@ -79,11 +80,13 @@ void PolygonMode::apply(State&) const
             glPolygonMode(GL_FRONT,(GLenum)_modeFront);
             glPolygonMode(GL_BACK,(GLenum)_modeBack);
         #else
-            OSG_NOTICE << "Warning: PolygonMode::apply(State&) - only GL_FRONT_AND_BACK is supported." << std::endl;
+            // The core profile sets one mode for both faces: the front mode is drawn, the separate back mode refused.
+            glPolygonMode(GL_FRONT_AND_BACK,(GLenum)_modeFront);
+            State::noteRefusedAttribute(libraryName(), className(), "a back mode that differs from the front mode");
         #endif
     }
 #else
-    OSG_NOTICE << "Warning: PolygonMode::apply(State&) - is not supported." << std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }
 

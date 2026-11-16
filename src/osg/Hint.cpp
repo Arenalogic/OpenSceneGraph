@@ -12,6 +12,7 @@
 */
 
 #include <osg/Hint>
+#include <osg/State>
 #include <osg/StateSet>
 
 using namespace osg;
@@ -19,6 +20,25 @@ using namespace osg;
 void Hint::apply(State& /*state*/) const
 {
     if (_target==GL_NONE || _mode==GL_NONE) return;
+
+#if !defined(OSG_GL_FIXED_FUNCTION_AVAILABLE)
+    // The core profile's targets are GL_LINE_SMOOTH_HINT, GL_POLYGON_SMOOTH_HINT, GL_TEXTURE_COMPRESSION_HINT and
+    // GL_FRAGMENT_SHADER_DERIVATIVE_HINT; the fixed-function ones are GL_INVALID_ENUM there and are refused.
+    const char* refused = 0;
+    switch (_target)
+    {
+        case 0x0C50: refused = "target GL_PERSPECTIVE_CORRECTION_HINT"; break;
+        case 0x0C51: refused = "target GL_POINT_SMOOTH_HINT"; break;
+        case 0x0C54: refused = "target GL_FOG_HINT"; break;
+        case 0x8192: refused = "target GL_GENERATE_MIPMAP_HINT"; break;
+        default: break;
+    }
+    if (refused)
+    {
+        State::noteRefusedAttribute(libraryName(), className(), refused);
+        return;
+    }
+#endif
 
     glHint(_target, _mode);
 }

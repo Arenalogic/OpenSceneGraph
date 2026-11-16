@@ -40,6 +40,6 @@ void ColorMatrix::apply(State& state) const
         glMatrixMode( GL_MODELVIEW );
     }
 #else
-    OSG_NOTICE<<"Warning: ColorMatrix::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }

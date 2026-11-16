@@ -39,6 +39,6 @@ void TexEnvFilter::apply(State& state) const
         glTexEnvf(GL_TEXTURE_FILTER_CONTROL_EXT, GL_TEXTURE_LOD_BIAS_EXT, _lodBias);
     }
 #else
-    OSG_NOTICE<<"Warning: TexEnvFilter::apply(State&) - not supported."<<std::endl;
+    State::noteRefusedAttribute(libraryName(), className());
 #endif
 }
