@@ -52,6 +52,11 @@
 #define GL_RGB565                         0x8D62
 #endif
 
+#ifndef GL_COMPRESSED_RED
+#define GL_COMPRESSED_RED                 0x8225
+#define GL_COMPRESSED_RG                  0x8226
+#endif
+
 #if 0
     #define CHECK_CONSISTENCY checkConsistency();
 #else
@@ -1306,6 +1311,314 @@ osg::ref_ptr<Texture::TextureObject> Texture::generateTextureObject(const Textur
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
+// GL core native: legacy texture formats on a core profile (Texture::selectCoreFormat)
+//
+namespace
+{
+    // Where a sampled channel comes from: a channel of the texel as the upload stores it, or a constant.
+    enum Source { SRC_R = 0, SRC_G = 1, SRC_B = 2, SRC_A = 3, SRC_ZERO = 4, SRC_ONE = 5 };
+
+    struct Sources
+    {
+        Sources(int r, int g, int b, int a) { s[0] = r; s[1] = g; s[2] = b; s[3] = a; }
+        int s[4];
+    };
+
+    // The precision of a legacy format, the row of its core stand-ins in kCoreFormats.
+    enum Precision { P_UNSIZED, P_UNORM8, P_UNORM16, P_FLOAT16, P_FLOAT32, P_UINT8, P_UINT16, P_UINT32, P_INT8, P_INT16, P_INT32, P_COMPRESSED, P_COUNT };
+
+    // The core formats of one to four channels at each precision.
+    const GLint kCoreFormats[P_COUNT][4] = {
+        { GL_RED,             GL_RG,             GL_RGB,             GL_RGBA },
+        { GL_R8,              GL_RG8,            GL_RGB8,            GL_RGBA8 },
+        { GL_R16,             GL_RG16,           GL_RGB16,           GL_RGBA16 },
+        { GL_R16F,            GL_RG16F,          GL_RGB16F_ARB,      GL_RGBA16F_ARB },
+        { GL_R32F,            GL_RG32F,          GL_RGB32F_ARB,      GL_RGBA32F_ARB },
+        { GL_R8UI,            GL_RG8UI,          GL_RGB8UI_EXT,      GL_RGBA8UI_EXT },
+        { GL_R16UI,           GL_RG16UI,         GL_RGB16UI_EXT,     GL_RGBA16UI_EXT },
+        { GL_R32UI,           GL_RG32UI,         GL_RGB32UI_EXT,     GL_RGBA32UI_EXT },
+        { GL_R8I,             GL_RG8I,           GL_RGB8I_EXT,       GL_RGBA8I_EXT },
+        { GL_R16I,            GL_RG16I,          GL_RGB16I_EXT,      GL_RGBA16I_EXT },
+        { GL_R32I,            GL_RG32I,          GL_RGB32I_EXT,      GL_RGBA32I_EXT },
+        { GL_COMPRESSED_RED,  GL_COMPRESSED_RG,  GL_COMPRESSED_RGB,  GL_COMPRESSED_RGBA }
+    };
+
+    struct LegacyFormat
+    {
+        GLint format;
+        GLenum base;            // GL_LUMINANCE, GL_ALPHA, GL_LUMINANCE_ALPHA or GL_INTENSITY
+        Precision precision;
+    };
+
+    // Every legacy internal format a core profile lacks. The first of a base and precision is the one a readback
+    // labels its image with (selectLegacyFormat). 1 and 2 are the GL 1.0 component counts, luminance and
+    // luminance-alpha. The sRGB luminance formats are left out: core has no one- or two-channel sRGB format.
+    const LegacyFormat kLegacyFormats[] = {
+        { GL_LUMINANCE,                 GL_LUMINANCE,       P_UNSIZED },
+        { 1,                            GL_LUMINANCE,       P_UNSIZED },
+        { GL_LUMINANCE8,                GL_LUMINANCE,       P_UNORM8 },
+        { GL_LUMINANCE4,                GL_LUMINANCE,       P_UNORM8 },
+        { GL_LUMINANCE16,               GL_LUMINANCE,       P_UNORM16 },
+        { GL_LUMINANCE12,               GL_LUMINANCE,       P_UNORM16 },
+        { GL_LUMINANCE16F_ARB,          GL_LUMINANCE,       P_FLOAT16 },
+        { GL_LUMINANCE32F_ARB,          GL_LUMINANCE,       P_FLOAT32 },
+        { GL_LUMINANCE8UI_EXT,          GL_LUMINANCE,       P_UINT8 },
+        { GL_LUMINANCE16UI_EXT,         GL_LUMINANCE,       P_UINT16 },
+        { GL_LUMINANCE32UI_EXT,         GL_LUMINANCE,       P_UINT32 },
+        { GL_LUMINANCE8I_EXT,           GL_LUMINANCE,       P_INT8 },
+        { GL_LUMINANCE16I_EXT,          GL_LUMINANCE,       P_INT16 },
+        { GL_LUMINANCE32I_EXT,          GL_LUMINANCE,       P_INT32 },
+        { GL_COMPRESSED_LUMINANCE,      GL_LUMINANCE,       P_COMPRESSED },
+
+        { GL_ALPHA,                     GL_ALPHA,           P_UNSIZED },
+        { GL_ALPHA8,                    GL_ALPHA,           P_UNORM8 },
+        { GL_ALPHA4,                    GL_ALPHA,           P_UNORM8 },
+        { GL_ALPHA16,                   GL_ALPHA,           P_UNORM16 },
+        { GL_ALPHA12,                   GL_ALPHA,           P_UNORM16 },
+        { GL_ALPHA16F_ARB,              GL_ALPHA,           P_FLOAT16 },
+        { GL_ALPHA32F_ARB,              GL_ALPHA,           P_FLOAT32 },
+        { GL_ALPHA8UI_EXT,              GL_ALPHA,           P_UINT8 },
+        { GL_ALPHA16UI_EXT,             GL_ALPHA,           P_UINT16 },
+        { GL_ALPHA32UI_EXT,             GL_ALPHA,           P_UINT32 },
+        { GL_ALPHA8I_EXT,               GL_ALPHA,           P_INT8 },
+        { GL_ALPHA16I_EXT,              GL_ALPHA,           P_INT16 },
+        { GL_ALPHA32I_EXT,              GL_ALPHA,           P_INT32 },
+        { GL_COMPRESSED_ALPHA,          GL_ALPHA,           P_COMPRESSED },
+
+        { GL_LUMINANCE_ALPHA,           GL_LUMINANCE_ALPHA, P_UNSIZED },
+        { 2,                            GL_LUMINANCE_ALPHA, P_UNSIZED },
+        { GL_LUMINANCE8_ALPHA8,         GL_LUMINANCE_ALPHA, P_UNORM8 },
+        { GL_LUMINANCE4_ALPHA4,         GL_LUMINANCE_ALPHA, P_UNORM8 },
+        { GL_LUMINANCE6_ALPHA2,         GL_LUMINANCE_ALPHA, P_UNORM8 },
+        { GL_LUMINANCE16_ALPHA16,       GL_LUMINANCE_ALPHA, P_UNORM16 },
+        { GL_LUMINANCE12_ALPHA4,        GL_LUMINANCE_ALPHA, P_UNORM16 },
+        { GL_LUMINANCE12_ALPHA12,       GL_LUMINANCE_ALPHA, P_UNORM16 },
+        { GL_LUMINANCE_ALPHA16F_ARB,    GL_LUMINANCE_ALPHA, P_FLOAT16 },
+        { GL_LUMINANCE_ALPHA32F_ARB,    GL_LUMINANCE_ALPHA, P_FLOAT32 },
+        { GL_LUMINANCE_ALPHA8UI_EXT,    GL_LUMINANCE_ALPHA, P_UINT8 },
+        { GL_LUMINANCE_ALPHA16UI_EXT,   GL_LUMINANCE_ALPHA, P_UINT16 },
+        { GL_LUMINANCE_ALPHA32UI_EXT,   GL_LUMINANCE_ALPHA, P_UINT32 },
+        { GL_LUMINANCE_ALPHA8I_EXT,     GL_LUMINANCE_ALPHA, P_INT8 },
+        { GL_LUMINANCE_ALPHA16I_EXT,    GL_LUMINANCE_ALPHA, P_INT16 },
+        { GL_LUMINANCE_ALPHA32I_EXT,    GL_LUMINANCE_ALPHA, P_INT32 },
+        { GL_COMPRESSED_LUMINANCE_ALPHA, GL_LUMINANCE_ALPHA, P_COMPRESSED },
+
+        { GL_INTENSITY,                 GL_INTENSITY,       P_UNSIZED },
+        { GL_INTENSITY8,                GL_INTENSITY,       P_UNORM8 },
+        { GL_INTENSITY4,                GL_INTENSITY,       P_UNORM8 },
+        { GL_INTENSITY16,               GL_INTENSITY,       P_UNORM16 },
+        { GL_INTENSITY12,               GL_INTENSITY,       P_UNORM16 },
+        { GL_INTENSITY16F_ARB,          GL_INTENSITY,       P_FLOAT16 },
+        { GL_INTENSITY32F_ARB,          GL_INTENSITY,       P_FLOAT32 },
+        { GL_INTENSITY8UI_EXT,          GL_INTENSITY,       P_UINT8 },
+        { GL_INTENSITY16UI_EXT,         GL_INTENSITY,       P_UINT16 },
+        { GL_INTENSITY32UI_EXT,         GL_INTENSITY,       P_UINT32 },
+        { GL_INTENSITY8I_EXT,           GL_INTENSITY,       P_INT8 },
+        { GL_INTENSITY16I_EXT,          GL_INTENSITY,       P_INT16 },
+        { GL_INTENSITY32I_EXT,          GL_INTENSITY,       P_INT32 },
+        { GL_COMPRESSED_INTENSITY,      GL_INTENSITY,       P_COMPRESSED }
+    };
+
+    const LegacyFormat* findLegacyFormat(GLint internalFormat)
+    {
+        for (size_t i=0; i<sizeof(kLegacyFormats)/sizeof(kLegacyFormats[0]); ++i)
+        {
+            if (kLegacyFormats[i].format==internalFormat) return &kLegacyFormats[i];
+        }
+        return 0;
+    }
+
+    // The channels a non-legacy internal format samples (1 red, 2 red-green, 3 RGB, 4 RGBA and anything else).
+    int coreChannelsOf(GLint internalFormat)
+    {
+        switch (internalFormat)
+        {
+            case GL_RED: case GL_R8: case GL_R8_SNORM: case GL_R16: case GL_R16_SNORM: case GL_R16F: case GL_R32F:
+            case GL_R8UI: case GL_R16UI: case GL_R32UI: case GL_R8I: case GL_R16I: case GL_R32I:
+            case GL_COMPRESSED_RED: case GL_COMPRESSED_RED_RGTC1_EXT: case GL_COMPRESSED_SIGNED_RED_RGTC1_EXT:
+            case GL_COMPRESSED_R11_EAC: case GL_COMPRESSED_SIGNED_R11_EAC:
+                return 1;
+            case GL_RG: case GL_RG8: case GL_RG8_SNORM: case GL_RG16: case GL_RG16_SNORM: case GL_RG16F: case GL_RG32F:
+            case GL_RG8UI: case GL_RG16UI: case GL_RG32UI: case GL_RG8I: case GL_RG16I: case GL_RG32I:
+            case GL_COMPRESSED_RG: case GL_COMPRESSED_RED_GREEN_RGTC2_EXT: case GL_COMPRESSED_SIGNED_RED_GREEN_RGTC2_EXT:
+            case GL_COMPRESSED_RG11_EAC: case GL_COMPRESSED_SIGNED_RG11_EAC:
+                return 2;
+            case 3: case GL_RGB: case GL_RGB4: case GL_RGB5: case GL_RGB8: case GL_RGB10: case GL_RGB12: case GL_RGB16:
+            case GL_R3_G3_B2: case GL_RGB565: case GL_SRGB8: case GL_RGB8_SNORM: case GL_RGB16_SNORM:
+            case GL_RGB16F_ARB: case GL_RGB32F_ARB:
+            case GL_RGB8UI_EXT: case GL_RGB16UI_EXT: case GL_RGB32UI_EXT: case GL_RGB8I_EXT: case GL_RGB16I_EXT: case GL_RGB32I_EXT:
+            case GL_COMPRESSED_RGB: case GL_COMPRESSED_SRGB: case GL_COMPRESSED_RGB_S3TC_DXT1_EXT: case GL_COMPRESSED_SRGB_S3TC_DXT1_EXT:
+            case GL_COMPRESSED_RGB8_ETC2: case GL_COMPRESSED_SRGB8_ETC2: case GL_ETC1_RGB8_OES:
+                return 3;
+            default:
+                return 4;
+        }
+    }
+
+    // What a texture of `channels` channels stores of an upload in a core pixel format, as sampled through an
+    // RGBA format: the client channels in order, the missing colour channels 0 and a missing alpha 1.
+    Sources uploadedSources(GLenum corePixelFormat)
+    {
+        switch (corePixelFormat)
+        {
+            case GL_RED: case GL_RED_INTEGER_EXT:
+                return Sources(SRC_R, SRC_ZERO, SRC_ZERO, SRC_ONE);
+            case GL_RG: case GL_RG_INTEGER:
+                return Sources(SRC_R, SRC_G, SRC_ZERO, SRC_ONE);
+            case GL_RGB: case GL_BGR: case GL_RGB_INTEGER_EXT: case GL_BGR_INTEGER_EXT:
+                return Sources(SRC_R, SRC_G, SRC_B, SRC_ONE);
+            default:    // RGBA, BGRA, no client data
+                return Sources(SRC_R, SRC_G, SRC_B, SRC_A);
+        }
+    }
+
+    GLint swizzleOf(int source)
+    {
+        switch (source)
+        {
+            case SRC_R: return GL_RED;
+            case SRC_G: return GL_GREEN;
+            case SRC_B: return GL_BLUE;
+            case SRC_A: return GL_ALPHA;
+            case SRC_ZERO: return GL_ZERO;
+            default: return GL_ONE;
+        }
+    }
+}
+
+GLint Texture::selectCoreFormat(GLint internalFormat, GLenum pixelFormat, Vec4i& swizzle)
+{
+    swizzle.set(GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA);
+
+    const LegacyFormat* legacy = findLegacyFormat(internalFormat);
+    const GLenum corePixelFormat = selectCorePixelFormat(pixelFormat);
+
+    // The GL 1.0 component counts with no legacy meaning: core has no counts at all.
+    if (!legacy && internalFormat==3) internalFormat = GL_RGB;
+    if (!legacy && internalFormat==4) internalFormat = GL_RGBA;
+    if (!legacy && corePixelFormat==pixelFormat) return internalFormat;
+
+    // The legacy pipeline (GL 2.1 sec. 3.6.4, 3.8.1, table 3.20): the client group becomes an RGBA group (luminance
+    // L -> (L, L, L, 1), alpha A -> (0, 0, 0, A), luminance-alpha -> (L, L, L, A)), the internal format keeps its
+    // components of it and sampling expands them again. `group` is that RGBA group in terms of what the core
+    // upload stores, `sampled` what the legacy texture sampled.
+    const Sources stored = uploadedSources(corePixelFormat);
+    Sources group = stored;
+    switch (pixelFormat)
+    {
+        case GL_LUMINANCE: case GL_INTENSITY: case GL_LUMINANCE_INTEGER_EXT:
+            group = Sources(stored.s[0], stored.s[0], stored.s[0], SRC_ONE); break;
+        case GL_ALPHA: case GL_ALPHA_INTEGER_EXT:
+            group = Sources(SRC_ZERO, SRC_ZERO, SRC_ZERO, stored.s[0]); break;
+        case GL_LUMINANCE_ALPHA: case GL_LUMINANCE_ALPHA_INTEGER_EXT:
+            group = Sources(stored.s[0], stored.s[0], stored.s[0], stored.s[1]); break;
+        default: break;
+    }
+
+    const int r = group.s[0], g = group.s[1], b = group.s[2], a = group.s[3];
+    Sources sampled = group;
+    if (legacy)
+    {
+        switch (legacy->base)
+        {
+            case GL_LUMINANCE:          sampled = Sources(r, r, r, SRC_ONE); break;
+            case GL_ALPHA:              sampled = Sources(SRC_ZERO, SRC_ZERO, SRC_ZERO, a); break;
+            case GL_LUMINANCE_ALPHA:    sampled = Sources(r, r, r, a); break;
+            default:                    sampled = Sources(r, r, r, r); break;   // GL_INTENSITY
+        }
+    }
+    else
+    {
+        switch (coreChannelsOf(internalFormat))
+        {
+            case 1:  sampled = Sources(r, SRC_ZERO, SRC_ZERO, SRC_ONE); break;
+            case 2:  sampled = Sources(r, g, SRC_ZERO, SRC_ONE); break;
+            case 3:  sampled = Sources(r, g, b, SRC_ONE); break;
+            default: break;
+        }
+    }
+
+    for (int i=0; i<4; ++i) swizzle[i] = swizzleOf(sampled.s[i]);
+
+    if (!legacy) return internalFormat;
+
+    // A legacy internal format stands in as the fewest core channels that hold what it samples, at its precision.
+    int channels = 1;
+    for (int i=0; i<4; ++i)
+    {
+        if (sampled.s[i]<=SRC_A && sampled.s[i]+1>channels) channels = sampled.s[i]+1;
+    }
+    return kCoreFormats[legacy->precision][channels-1];
+}
+
+GLenum Texture::selectCorePixelFormat(GLenum pixelFormat)
+{
+    switch (pixelFormat)
+    {
+        case GL_LUMINANCE: case GL_ALPHA: case GL_INTENSITY: return GL_RED;
+        case GL_LUMINANCE_ALPHA: return GL_RG;
+        case GL_LUMINANCE_INTEGER_EXT: case GL_ALPHA_INTEGER_EXT: return GL_RED_INTEGER_EXT;
+        case GL_LUMINANCE_ALPHA_INTEGER_EXT: return GL_RG_INTEGER;
+        default: return pixelFormat;
+    }
+}
+
+bool Texture::selectLegacyFormat(GLint coreInternalFormat, const Vec4i& swizzle, GLint& legacyInternalFormat, GLenum& legacyPixelFormat)
+{
+    for (int precision=0; precision<P_COUNT; ++precision)
+    {
+        for (int channels=1; channels<=2; ++channels)
+        {
+            if (kCoreFormats[precision][channels-1]!=coreInternalFormat) continue;
+
+            GLenum base = 0;
+            if (channels==1 && swizzle==Vec4i(GL_RED, GL_RED, GL_RED, GL_ONE)) base = GL_LUMINANCE;
+            else if (channels==1 && swizzle==Vec4i(GL_ZERO, GL_ZERO, GL_ZERO, GL_RED)) base = GL_ALPHA;
+            else if (channels==1 && swizzle==Vec4i(GL_RED, GL_RED, GL_RED, GL_RED)) base = GL_INTENSITY;
+            else if (channels==2 && swizzle==Vec4i(GL_RED, GL_RED, GL_RED, GL_GREEN)) base = GL_LUMINANCE_ALPHA;
+            if (base==0) return false;
+
+            for (size_t i=0; i<sizeof(kLegacyFormats)/sizeof(kLegacyFormats[0]); ++i)
+            {
+                if (kLegacyFormats[i].base!=base || kLegacyFormats[i].precision!=precision) continue;
+
+                const bool integer = precision>=P_UINT8 && precision<=P_INT32;
+                legacyInternalFormat = kLegacyFormats[i].format;
+                switch (base)
+                {
+                    case GL_ALPHA: legacyPixelFormat = integer ? GL_ALPHA_INTEGER_EXT : GL_ALPHA; break;
+                    case GL_LUMINANCE_ALPHA: legacyPixelFormat = integer ? GL_LUMINANCE_ALPHA_INTEGER_EXT : GL_LUMINANCE_ALPHA; break;
+                    default: legacyPixelFormat = integer ? GL_LUMINANCE_INTEGER_EXT : GL_LUMINANCE; break;   // luminance, intensity
+                }
+                return true;
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+GLenum Texture::selectUploadPixelFormat(GLenum pixelFormat)
+{
+#if defined(OSG_GL3_AVAILABLE)
+    return selectCorePixelFormat(pixelFormat);
+#else
+    return pixelFormat;
+#endif
+}
+
+GLint Texture::selectUploadInternalFormat(const Image& image)
+{
+#if defined(OSG_GL3_AVAILABLE)
+    Vec4i swizzle;
+    return selectCoreFormat(image.getInternalTextureFormat(), image.getPixelFormat(), swizzle);
+#else
+    return image.getInternalTextureFormat();
+#endif
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
 // Texture class implementation
 //
 Texture::Texture():
@@ -1330,6 +1643,8 @@ Texture::Texture():
             _internalFormat(0),
             _sourceFormat(0),
             _sourceType(0),
+            _legacyInternalFormat(0),
+            _formatSwizzle(GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA),
             _use_shadow_comparison(false),
             _shadow_compare_func(LEQUAL),
             _shadow_texture_mode(LUMINANCE),
@@ -1360,6 +1675,8 @@ Texture::Texture(const Texture& text,const CopyOp& copyop):
             _internalFormat(text._internalFormat),
             _sourceFormat(text._sourceFormat),
             _sourceType(text._sourceType),
+            _legacyInternalFormat(text._legacyInternalFormat),
+            _formatSwizzle(text._formatSwizzle),
             _use_shadow_comparison(text._use_shadow_comparison),
             _shadow_compare_func(text._shadow_compare_func),
             _shadow_texture_mode(text._shadow_texture_mode),
@@ -1392,6 +1709,9 @@ int Texture::compareTexture(const Texture& rhs) const
     if (_internalFormat!=0 && rhs._internalFormat!=0)
     {
         COMPARE_StateAttribute_Parameter(_internalFormat)
+        // GL core native: GL_LUMINANCE8 and GL_ALPHA8 both stand in as GL_R8 and differ in their swizzle.
+        COMPARE_StateAttribute_Parameter(_legacyInternalFormat)
+        COMPARE_StateAttribute_Parameter(_formatSwizzle)
     }
 
     COMPARE_StateAttribute_Parameter(_sourceFormat)
@@ -1740,29 +2060,44 @@ void Texture::computeInternalFormatWithImage(const osg::Image& image) const
         case(GL_RGBA8_OES) : internalFormat = GL_RGBA; break;
         default: break;
     }
-#elif defined(OSG_GL3_AVAILABLE)
-    switch(internalFormat)
-    {
-        case(GL_INTENSITY) : internalFormat = GL_RED; break; // should it be swizzled to match RGBA(INTENSITY, INTENSITY, INTENSITY, INTENSITY)?
-        case(GL_LUMINANCE) : internalFormat = GL_RED; break; // should it be swizzled to match RGBA(LUMINANCE, LUMINANCE, LUMINANCE, 1.0)?
-        case(1) : internalFormat = GL_RED; break; // or should this be GL_ALPHA?
-        case(2) : internalFormat = GL_RG; break; // should we assume GL_LUMINANCE_ALPHA?
-        case(GL_LUMINANCE_ALPHA) : internalFormat = GL_RG; break; // should it be swizlled to match RGAB(LUMUNIANCE, LUMINANCE, LUMINANCE, ALPHA)?
-        case(3) : internalFormat = GL_RGB; break;
-        case(4) : internalFormat = GL_RGBA; break;
-        default: break;
-    }
 #endif
 
-    _internalFormat = internalFormat;
+    // GL core native: a user-defined legacy format was mapped when it was set (setInternalFormat); map the request
+    // again, now with this image's pixel format. On a build with legacy formats this sets internalFormat as is.
+    if (_internalFormatMode==USE_USER_DEFINED_FORMAT && _legacyInternalFormat!=0) internalFormat = _legacyInternalFormat;
+    applyCoreFormat(internalFormat, image.getPixelFormat());
 
-
-    computeInternalFormatType();
+    _internalFormatType = internalFormatTypeOf(_internalFormat);
 
     //OSG_NOTICE<<"Internal format="<<std::hex<<internalFormat<<std::dec<<std::endl;
 }
 
 void Texture::computeInternalFormatType() const
+{
+    // GL core native: no image, so the source format is the pixel format of any data a subload brings.
+    applyCoreFormat(_legacyInternalFormat!=0 ? _legacyInternalFormat : _internalFormat, _sourceFormat);
+
+    _internalFormatType = internalFormatTypeOf(_internalFormat);
+}
+
+void Texture::applyCoreFormat(GLint requestedInternalFormat, GLenum pixelFormat) const
+{
+#if defined(OSG_GL3_AVAILABLE)
+    Vec4i swizzle;
+    _internalFormat = selectCoreFormat(requestedInternalFormat, pixelFormat, swizzle);
+    _legacyInternalFormat = findLegacyFormat(requestedInternalFormat)!=0 ? requestedInternalFormat : 0;
+    if (swizzle!=_formatSwizzle)
+    {
+        _formatSwizzle = swizzle;
+        _texParametersDirtyList.setAllElementsTo(1);
+    }
+#else
+    (void)pixelFormat;
+    _internalFormat = requestedInternalFormat;
+#endif
+}
+
+Texture::InternalFormatType Texture::internalFormatTypeOf(GLint internalFormat)
 {
     // Here we could also precompute the _sourceFormat if it is not set,
     // since it is different for different internal formats
@@ -1770,7 +2105,7 @@ void Texture::computeInternalFormatType() const
     // Should we do this?  ( Art, 09. Sept. 2007)
 
     // compute internal format type based on the internal format
-    switch(_internalFormat)
+    switch(internalFormat)
     {
         case GL_RGBA32UI_EXT:
         case GL_RGBA16UI_EXT:
@@ -1799,8 +2134,7 @@ void Texture::computeInternalFormatType() const
         case GL_LUMINANCE_ALPHA32UI_EXT:
         case GL_LUMINANCE_ALPHA16UI_EXT:
         case GL_LUMINANCE_ALPHA8UI_EXT :
-            _internalFormatType = UNSIGNED_INTEGER;
-            break;
+            return UNSIGNED_INTEGER;
 
         case GL_RGBA32I_EXT:
         case GL_RGBA16I_EXT:
@@ -1829,8 +2163,7 @@ void Texture::computeInternalFormatType() const
         case GL_LUMINANCE_ALPHA32I_EXT:
         case GL_LUMINANCE_ALPHA16I_EXT:
         case GL_LUMINANCE_ALPHA8I_EXT:
-            _internalFormatType = SIGNED_INTEGER;
-            break;
+            return SIGNED_INTEGER;
 
         case GL_RGBA32F_ARB:
         case GL_RGBA16F_ARB:
@@ -1852,12 +2185,10 @@ void Texture::computeInternalFormatType() const
 
         case GL_LUMINANCE_ALPHA32F_ARB:
         case GL_LUMINANCE_ALPHA16F_ARB:
-            _internalFormatType = FLOAT;
-            break;
+            return FLOAT;
 
         default:
-            _internalFormatType = NORMALIZED;
-            break;
+            return NORMALIZED;
     };
 }
 
@@ -2169,7 +2500,18 @@ void Texture::applyTexParameters(GLenum target, State& state) const
     {
         // note, GL_TEXTURE_SWIZZLE_RGBA will either be defined
         // by gl.h (or via glext.h) or by include/osg/Texture.
-        glTexParameteriv(target, GL_TEXTURE_SWIZZLE_RGBA, _swizzle.ptr());
+        // GL core native: the user's swizzle reads the channels as the legacy format had them (_formatSwizzle).
+        Vec4i swizzle = _swizzle;
+        for (int i=0; i<4; ++i)
+        {
+            if (swizzle[i]>=GL_RED && swizzle[i]<=GL_ALPHA) swizzle[i] = _formatSwizzle[swizzle[i]-GL_RED];
+        }
+        glTexParameteriv(target, GL_TEXTURE_SWIZZLE_RGBA, swizzle.ptr());
+    }
+    else if (_legacyInternalFormat!=0)
+    {
+        OSG_NOTICE<<"Warning: Texture::applyTexParameters(..) no texture swizzle on this context: a legacy format texture ("
+                  <<std::hex<<_legacyInternalFormat<<std::dec<<") samples as its core stand-in."<<std::endl;
     }
 
     if (extensions->isTextureBorderClampSupported)
@@ -2483,7 +2825,7 @@ void Texture::applyTexImage2D_load(State& state, GLenum target, const Image* ima
 
             glTexImage2D( target, 0, _internalFormat,
                 inwidth, inheight, _borderWidth,
-                (GLenum)image->getPixelFormat(),
+                selectUploadPixelFormat(image->getPixelFormat()),
                 (GLenum)image->getDataType(),
                 dataPtr);
 
@@ -2501,7 +2843,13 @@ void Texture::applyTexImage2D_load(State& state, GLenum target, const Image* ima
                 dataPtr);
         }
 
-        mipmapAfterTexImage(state, mipmapResult);
+        // One face of a cube map is not the texture: glGenerateMipmap on a cube before its last face is defined is
+        // GL_INVALID_OPERATION (not cube complete), so a face leaves the chain to TextureCubeMap::apply, which
+        // generates it once for all six faces after the last one.
+        if (mipmapResult==GENERATE_MIPMAP && getTextureTarget()==GL_TEXTURE_CUBE_MAP && target!=GL_TEXTURE_CUBE_MAP)
+            _texMipmapGenerationDirtyList[state.getContextID()] = 1;
+        else
+            mipmapAfterTexImage(state, mipmapResult);
     }
     else
     {
@@ -2546,7 +2894,7 @@ void Texture::applyTexImage2D_load(State& state, GLenum target, const Image* ima
                         glTexSubImage2D( target, k,
                             0, 0,
                             width, height,
-                            (GLenum)image->getPixelFormat(),
+                            selectUploadPixelFormat(image->getPixelFormat()),
                             (GLenum)image->getDataType(),
                             dataPtr + image->getMipmapOffset(k));
 
@@ -2596,7 +2944,7 @@ void Texture::applyTexImage2D_load(State& state, GLenum target, const Image* ima
 
                         glTexImage2D( target, k, _internalFormat,
                              width, height, _borderWidth,
-                            (GLenum)image->getPixelFormat(),
+                            selectUploadPixelFormat(image->getPixelFormat()),
                             (GLenum)image->getDataType(),
                             dataPtr + image->getMipmapOffset(k));
 
@@ -2635,7 +2983,7 @@ void Texture::applyTexImage2D_load(State& state, GLenum target, const Image* ima
 
                 gluBuild2DMipmaps( target, _internalFormat,
                     inwidth,inheight,
-                    (GLenum)image->getPixelFormat(), (GLenum)image->getDataType(),
+                    selectUploadPixelFormat(image->getPixelFormat()), (GLenum)image->getDataType(),
                     dataPtr);
 
                 int width  = image->s();
@@ -2699,7 +3047,7 @@ void Texture::applyTexImage2D_subload(State& state, GLenum target, const Image* 
         return;
 
     // image size has changed so we have to re-load the image from scratch.
-    if (image->s()!=inwidth || image->t()!=inheight || image->getInternalTextureFormat()!=inInternalFormat )
+    if (image->s()!=inwidth || image->t()!=inheight || selectUploadInternalFormat(*image)!=inInternalFormat )
     {
         applyTexImage2D_load(state, target, image, inwidth, inheight,numMipmapLevels);
         return;
@@ -2810,7 +3158,7 @@ void Texture::applyTexImage2D_subload(State& state, GLenum target, const Image* 
             glTexSubImage2D( target, 0,
                 0, 0,
                 inwidth, inheight,
-                (GLenum)image->getPixelFormat(),
+                selectUploadPixelFormat(image->getPixelFormat()),
                 (GLenum)image->getDataType(),
                 dataPtr);
         }
@@ -2827,7 +3175,11 @@ void Texture::applyTexImage2D_subload(State& state, GLenum target, const Image* 
                 dataPtr);
         }
 
-        mipmapAfterTexImage(state, mipmapResult);
+        // A cube face leaves its chain to TextureCubeMap::apply, as in applyTexImage2D_load.
+        if (mipmapResult==GENERATE_MIPMAP && getTextureTarget()==GL_TEXTURE_CUBE_MAP && target!=GL_TEXTURE_CUBE_MAP)
+            _texMipmapGenerationDirtyList[contextID] = 1;
+        else
+            mipmapAfterTexImage(state, mipmapResult);
     }
     else
     {
@@ -2851,7 +3203,7 @@ void Texture::applyTexImage2D_subload(State& state, GLenum target, const Image* 
                     glTexSubImage2D( target, k,
                         0, 0,
                         width, height,
-                        (GLenum)image->getPixelFormat(),
+                        selectUploadPixelFormat(image->getPixelFormat()),
                         (GLenum)image->getDataType(),
                         dataPtr + image->getMipmapOffset(k));
 

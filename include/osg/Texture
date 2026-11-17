@@ -630,18 +630,63 @@ class OSG_EXPORT Texture : public osg::StateAttribute
         {
             _internalFormatMode = USE_USER_DEFINED_FORMAT;
             _internalFormat = internalFormat;
+            _legacyInternalFormat = 0;
             computeInternalFormatType();
         }
 
 
-        /** Gets the internal texture format. */
+        /** Gets the internal texture format. On a build without legacy texture formats (GL3/GLCORE) this is the
+          * core format that stands in for a legacy one (see selectCoreFormat). */
         inline GLint getInternalFormat() const { if (_internalFormat==0) computeInternalFormat(); return _internalFormat; }
+
+        /** Gets the legacy internal format (luminance, alpha, luminance-alpha or intensity) that the internal
+          * format stands in for on a build without legacy texture formats, or 0 when it stands in for none. */
+        inline GLint getLegacyInternalFormat() const { return _legacyInternalFormat; }
+
+        /** Gets the swizzle that gives a texture of a legacy format its legacy meaning on a build without legacy
+          * texture formats (identity otherwise). The texture applies it under the user's swizzle (setSwizzle). */
+        inline const Vec4i& getFormatSwizzle() const { return _formatSwizzle; }
+
+        /** GL core native: what a core profile context, which has no luminance, alpha, luminance-alpha or intensity
+          * texture formats, needs for a texture of internalFormat uploaded from client data of pixelFormat (0: no
+          * client data). Returns the core internal format (one or two red-green channels in the plain cases, the
+          * precision of the legacy format kept) and sets swizzle to the texture swizzle that samples it as the
+          * legacy format did: luminance (L, L, L, 1) = RRR1, alpha (0, 0, 0, A) = 000R, luminance-alpha
+          * (L, L, L, A) = RRRG, intensity (I, I, I, I) = RRRR. A legacy pixel format with a core internal format
+          * (GL_RGBA8 from GL_LUMINANCE data, say) keeps the internal format and gets the swizzle the legacy
+          * expansion of the data needs. A pair with nothing legacy maps to itself with the identity swizzle. The
+          * same on every build; a build without legacy texture formats applies it to every texture it uploads. */
+        static GLint selectCoreFormat(GLint internalFormat, GLenum pixelFormat, Vec4i& swizzle);
+
+        /** The core pixel format that carries the client bytes of a legacy one: GL_LUMINANCE, GL_ALPHA and
+          * GL_INTENSITY -> GL_RED, GL_LUMINANCE_ALPHA -> GL_RG, and their _INTEGER forms likewise. The same bytes in
+          * the same order; any other format maps to itself. The same on every build. */
+        static GLenum selectCorePixelFormat(GLenum pixelFormat);
+
+        /** The inverse for a readback: the legacy internal and pixel formats a core internal format with a
+          * texture swizzle stands in for (GL_R8 with RRR1 -> GL_LUMINANCE8 / GL_LUMINANCE, and so on), or false
+          * when the pair stands in for no legacy format. */
+        static bool selectLegacyFormat(GLint coreInternalFormat, const Vec4i& swizzle, GLint& legacyInternalFormat, GLenum& legacyPixelFormat);
+
+        /** The pixel format an upload passes to GL for a client pixel format: selectCorePixelFormat on a build
+          * without legacy texture formats, the format itself on any other build. */
+        static GLenum selectUploadPixelFormat(GLenum pixelFormat);
+
+        /** The internal format an upload of image gives the texture when it uses the image's own format: the
+          * core stand-in on a build without legacy texture formats, the image's internal format on any other. A
+          * subload compares it with the texture's to decide whether to load the image again. */
+        static GLint selectUploadInternalFormat(const Image& image);
 
         /** Return true if the internal format is one of the compressed formats.*/
         bool isCompressedInternalFormat() const;
 
         /** Sets the external source image format, used as a fallback when no osg::Image is attached to provide the source image format. */
-        inline void setSourceFormat(GLenum sourceFormat) { _sourceFormat = sourceFormat; }
+        inline void setSourceFormat(GLenum sourceFormat)
+        {
+            _sourceFormat = sourceFormat;
+            // GL core native: a legacy format's stand-in depends on the data's format (selectCoreFormat).
+            if (_internalFormatMode==USE_USER_DEFINED_FORMAT && _legacyInternalFormat!=0) computeInternalFormatType();
+        }
 
         /** Gets the external source image format. */
         inline GLenum getSourceFormat() const { return _sourceFormat; }
@@ -839,8 +884,17 @@ class OSG_EXPORT Texture : public osg::StateAttribute
         /** Computes the texture dimension for the given Image. */
         void computeRequiredTextureDimensions(State& state, const osg::Image& image,GLsizei& width, GLsizei& height,GLsizei& numMipmapLevels) const;
 
-        /** Computes the internal format type. */
+        /** Computes the internal format type. On a build without legacy texture formats it first maps a legacy
+          * internal format to its core stand-in (selectCoreFormat, with the source format as the pixel format). */
         void computeInternalFormatType() const;
+
+        /** Sets _internalFormat, _legacyInternalFormat and _formatSwizzle from the requested internal format and
+          * the client pixel format: selectCoreFormat on a build without legacy texture formats, the requested
+          * format unchanged on any other build. Dirties the texture parameters when the swizzle changes. */
+        void applyCoreFormat(GLint requestedInternalFormat, GLenum pixelFormat) const;
+
+        /** The internal format type of an internal format. */
+        static InternalFormatType internalFormatTypeOf(GLint internalFormat);
 
         /** Helper method. Sets texture parameters. */
         void applyTexParameters(GLenum target, State& state) const;
@@ -900,6 +954,11 @@ class OSG_EXPORT Texture : public osg::StateAttribute
         mutable GLint       _internalFormat;
         mutable GLenum      _sourceFormat;
         mutable GLenum      _sourceType;
+
+        // GL core native: on a build without legacy texture formats, the legacy format _internalFormat stands in
+        // for (0 when none) and the swizzle that gives it the legacy meaning (selectCoreFormat).
+        mutable GLint       _legacyInternalFormat;
+        mutable Vec4i       _formatSwizzle;
 
         bool                _use_shadow_comparison;
         ShadowCompareFunc   _shadow_compare_func;

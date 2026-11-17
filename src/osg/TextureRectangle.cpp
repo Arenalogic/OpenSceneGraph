@@ -295,7 +295,7 @@ void TextureRectangle::apply(State& state) const
 
             glTexImage2D( GL_TEXTURE_RECTANGLE, 0, _internalFormat,
                      _textureWidth, _textureHeight, _borderWidth,
-                     internalFormat,
+                     selectUploadPixelFormat(internalFormat),
                      _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
                      0);
         }
@@ -368,7 +368,7 @@ void TextureRectangle::applyTexImage_load(GLenum target, Image* image, State& st
     {
         glTexImage2D(target, 0, _internalFormat,
           image->s(), image->t(), 0,
-          (GLenum)image->getPixelFormat(),
+          selectUploadPixelFormat(image->getPixelFormat()),
           (GLenum)image->getDataType(),
           dataPtr );
     }
@@ -394,7 +394,7 @@ void TextureRectangle::applyTexImage_subload(GLenum target, Image* image, State&
     if (!image || !image->data())
         return;
 
-    if (image->s()!=inwidth || image->t()!=inheight || image->getInternalTextureFormat()!=inInternalFormat)
+    if (image->s()!=inwidth || image->t()!=inheight || selectUploadInternalFormat(*image)!=inInternalFormat)
     {
         applyTexImage_load(target, image, state, inwidth, inheight);
         return;
@@ -450,7 +450,7 @@ void TextureRectangle::applyTexImage_subload(GLenum target, Image* image, State&
         glTexSubImage2D(target, 0,
           0,0,
           image->s(), image->t(),
-          (GLenum)image->getPixelFormat(),
+          selectUploadPixelFormat(image->getPixelFormat()),
           (GLenum)image->getDataType(),
           dataPtr);
     }

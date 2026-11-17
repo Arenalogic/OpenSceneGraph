@@ -3492,7 +3492,8 @@ Optimizer::TextureAtlasBuilder::Atlas::FitsIn Optimizer::TextureAtlasBuilder::At
                 return DOES_NOT_FIT_IN_ANY_ROW;
             }
 
-            if (_texture->getInternalFormat() != sourceTexture->getInternalFormat())
+            if (_texture->getInternalFormat() != sourceTexture->getInternalFormat() ||
+                _texture->getLegacyInternalFormat() != sourceTexture->getLegacyInternalFormat())
             {
                 // internal formats inconistent
                 return DOES_NOT_FIT_IN_ANY_ROW;
@@ -3591,7 +3592,8 @@ bool Optimizer::TextureAtlasBuilder::Atlas::addSource(Source* source)
 
         _texture->setMaxAnisotropy(sourceTexture->getMaxAnisotropy());
 
-        _texture->setInternalFormat(sourceTexture->getInternalFormat());
+        // GL core native: the format as set (a legacy one), so the atlas maps it to the same stand-in and swizzle.
+        _texture->setInternalFormat(sourceTexture->getLegacyInternalFormat()!=0 ? sourceTexture->getLegacyInternalFormat() : sourceTexture->getInternalFormat());
 
         _texture->setShadowCompareFunc(sourceTexture->getShadowCompareFunc());
         _texture->setShadowTextureMode(sourceTexture->getShadowTextureMode());

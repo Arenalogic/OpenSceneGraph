@@ -320,7 +320,7 @@ void Texture2D::apply(State& state) const
              applyTexParameters(GL_TEXTURE_2D, state);
              glTexImage2D( GL_TEXTURE_2D, 0, _internalFormat,
                       _textureWidth, _textureHeight, _borderWidth,
-                      internalFormat,
+                      selectUploadPixelFormat(internalFormat),
                       _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
                       0);
         }
@@ -507,7 +507,7 @@ void Texture2D::allocateMipmap(State& state) const
 
             glTexImage2D( GL_TEXTURE_2D, k, _internalFormat,
                      width, height, _borderWidth,
-                     _sourceFormat ? _sourceFormat : _internalFormat,
+                     selectUploadPixelFormat(_sourceFormat ? _sourceFormat : _internalFormat),
                      _sourceType ? _sourceType : GL_UNSIGNED_BYTE, NULL);
 
             width >>= 1;

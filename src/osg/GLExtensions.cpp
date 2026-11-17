@@ -875,7 +875,8 @@ GLExtensions::GLExtensions(unsigned int in_contextID):
                                  isGLExtensionOrVersionSupported(contextID,"GL_EXT_multitexture", 1.3f));
 
     isTextureFilterAnisotropicSupported = validContext && isGLExtensionSupported(contextID,"GL_EXT_texture_filter_anisotropic");
-    isTextureSwizzleSupported = validContext && isGLExtensionSupported(contextID,"GL_ARB_texture_swizzle");
+    // Core since OpenGL 3.3: a core context need not list the extension (the legacy format swizzles rely on it).
+    isTextureSwizzleSupported = validContext && isGLExtensionOrVersionSupported(contextID,"GL_ARB_texture_swizzle", 3.3f);
     isTextureCompressionARBSupported = validContext && (builtInSupport || isGLExtensionOrVersionSupported(contextID,"GL_ARB_texture_compression", 1.3f));
     isTextureCompressionS3TCSupported = validContext && (isGLExtensionSupported(contextID,"GL_EXT_texture_compression_s3tc") ||
                                                          isGLExtensionSupported(contextID, "GL_S3_s3tc") ||

@@ -337,7 +337,7 @@ void Texture3D::apply(State& state) const
             extensions->glTexImage3D( GL_TEXTURE_3D, 0, _internalFormat,
                      _textureWidth, _textureHeight, _textureDepth,
                      _borderWidth,
-                     internalFormat,
+                     selectUploadPixelFormat(internalFormat),
                      _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
                      0);
         }
@@ -421,7 +421,7 @@ void Texture3D::applyTexImage3D(GLenum target, Image* image, State& state, GLsiz
             extensions->glTexImage3D( target, 0, _internalFormat,
                                       inwidth, inheight, indepth,
                                       _borderWidth,
-                                      (GLenum)image->getPixelFormat(),
+                                      selectUploadPixelFormat(image->getPixelFormat()),
                                       (GLenum)image->getDataType(),
                                       image->data() );
         }
@@ -452,7 +452,7 @@ void Texture3D::applyTexImage3D(GLenum target, Image* image, State& state, GLsiz
             gluBuild3DMipmaps( extensions->glTexImage3D,
                                target, _internalFormat,
                                image->s(),image->t(),image->r(),
-                               (GLenum)image->getPixelFormat(), (GLenum)image->getDataType(),
+                               selectUploadPixelFormat(image->getPixelFormat()), (GLenum)image->getDataType(),
                                image->data() );
 
         }
@@ -476,7 +476,7 @@ void Texture3D::applyTexImage3D(GLenum target, Image* image, State& state, GLsiz
 
                 extensions->glTexImage3D( target, k, _internalFormat,
                                           width, height, depth, _borderWidth,
-                                          (GLenum)image->getPixelFormat(),
+                                          selectUploadPixelFormat(image->getPixelFormat()),
                                           (GLenum)image->getDataType(),
                                           image->getMipmapData(k));
 
@@ -558,7 +558,7 @@ void Texture3D::allocateMipmap(State& state) const
 
             extensions->glTexImage3D( GL_TEXTURE_3D, k, _internalFormat,
                      width, height, depth, _borderWidth,
-                     _sourceFormat ? _sourceFormat : _internalFormat,
+                     selectUploadPixelFormat(_sourceFormat ? _sourceFormat : _internalFormat),
                      _sourceType ? _sourceType : GL_UNSIGNED_BYTE, NULL);
 
             width >>= 1;

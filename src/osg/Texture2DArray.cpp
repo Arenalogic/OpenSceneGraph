@@ -379,7 +379,7 @@ void Texture2DArray::apply(State& state) const
 
                 extensions->glTexImage3D( GL_TEXTURE_2D_ARRAY, 0, _internalFormat,
                          _textureWidth, _textureHeight, textureDepth, _borderWidth,
-                         sourceFormat, _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
+                         selectUploadPixelFormat(sourceFormat), _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
                          0);
             }
         }
@@ -457,7 +457,7 @@ void Texture2DArray::apply(State& state) const
             extensions->glTexImage3D( GL_TEXTURE_2D_ARRAY, 0, _internalFormat,
                      _textureWidth, _textureHeight, _textureDepth,
                      _borderWidth,
-                     _sourceFormat ? _sourceFormat : _internalFormat,
+                     selectUploadPixelFormat(_sourceFormat ? _sourceFormat : _internalFormat),
                      _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
                      0);
 
@@ -520,7 +520,7 @@ void Texture2DArray::applyTexImage2DArray_subload(State& state, Image* image, GL
     // image size or format has changed, this is not allowed, hence return
     if (image->s()!=inwidth ||
         image->t()!=inheight ||
-        image->getInternalTextureFormat()!=inInternalFormat )
+        selectUploadInternalFormat(*image)!=inInternalFormat )
     {
         OSG_WARN<<"Warning: Texture2DArray::applyTexImage2DArray_subload(..) given image do have wrong dimension or internal format."<<std::endl;
         return;
@@ -568,7 +568,7 @@ void Texture2DArray::applyTexImage2DArray_subload(State& state, Image* image, GL
             extensions->glTexSubImage3D( target, 0,
                                       0, 0, layer,
                                       inwidth, inheight, indepth,
-                                      (GLenum)image->getPixelFormat(),
+                                      selectUploadPixelFormat(image->getPixelFormat()),
                                       (GLenum)image->getDataType(),
                                       dataPtr );
 #endif
@@ -621,7 +621,7 @@ void Texture2DArray::applyTexImage2DArray_subload(State& state, Image* image, GL
 
                     extensions->glTexSubImage3D( target, k, 0, 0, layer,
                                               width, height, indepth,
-                                              (GLenum)image->getPixelFormat(),
+                                              selectUploadPixelFormat(image->getPixelFormat()),
                                               (GLenum)image->getDataType(),
                                               dataPtr + image->getMipmapOffset(k));
 
@@ -752,7 +752,7 @@ void Texture2DArray::allocateMipmap(State& state) const
             {
                 extensions->glTexImage3D( GL_TEXTURE_2D_ARRAY, k, _internalFormat,
                      width, height, textureDepth, _borderWidth,
-                     safeSourceFormat, _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
+                     selectUploadPixelFormat(safeSourceFormat), _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
                      NULL);
             }
 

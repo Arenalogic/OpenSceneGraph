@@ -252,7 +252,7 @@ void Texture1D::apply(State& state) const
 
             glTexImage1D( GL_TEXTURE_1D, 0, _internalFormat,
                      _textureWidth, _borderWidth,
-                     internalFormat,
+                     selectUploadPixelFormat(internalFormat),
                      _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
                      0);
         }
@@ -322,7 +322,7 @@ void Texture1D::applyTexImage1D(GLenum target, Image* image, State& state, GLsiz
             numMipmapLevels = 1;
             glTexImage1D( target, 0, _internalFormat,
                 image->s(), _borderWidth,
-                (GLenum)image->getPixelFormat(),
+                selectUploadPixelFormat(image->getPixelFormat()),
                 (GLenum)image->getDataType(),
                 image->data() );
 
@@ -349,7 +349,7 @@ void Texture1D::applyTexImage1D(GLenum target, Image* image, State& state, GLsiz
 
             gluBuild1DMipmaps( target, _internalFormat,
                 image->s(),
-                (GLenum)image->getPixelFormat(), (GLenum)image->getDataType(),
+                selectUploadPixelFormat(image->getPixelFormat()), (GLenum)image->getDataType(),
                 image->data() );
 
         }
@@ -366,7 +366,7 @@ void Texture1D::applyTexImage1D(GLenum target, Image* image, State& state, GLsiz
 
                     glTexImage1D( target, k, _internalFormat,
                          width,_borderWidth,
-                        (GLenum)image->getPixelFormat(),
+                        selectUploadPixelFormat(image->getPixelFormat()),
                         (GLenum)image->getDataType(),
                         image->getMipmapData(k));
 
@@ -510,7 +510,7 @@ void Texture1D::allocateMipmap(State& state) const
         {
             glTexImage1D( GL_TEXTURE_1D, k, _internalFormat,
                      width, _borderWidth,
-                     _sourceFormat ? _sourceFormat : _internalFormat,
+                     selectUploadPixelFormat(_sourceFormat ? _sourceFormat : _internalFormat),
                      _sourceType ? _sourceType : GL_UNSIGNED_BYTE, NULL);
 
             width >>= 1;

@@ -1564,6 +1564,25 @@ void Image::readImageFromCurrentTexture(unsigned int contextID, bool copyMipMaps
             glGetTexImage(textureMode,i,_pixelFormat,_dataType,getMipmapData(i));
         }
 
+#if defined(OSG_GL3_AVAILABLE)
+        // GL core native: a core texture that stands in for a legacy format (Texture::selectCoreFormat) is read in
+        // its core format and labelled with the legacy format its swizzle gives it, so the image means what the
+        // texture sampled and uploads again as the same texture.
+        if (extensions->isTextureSwizzleSupported)
+        {
+            Vec4i swizzle(GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA);
+            glGetTexParameteriv(bindingCubeMap ? GL_TEXTURE_CUBE_MAP : textureMode, GL_TEXTURE_SWIZZLE_RGBA, swizzle.ptr());
+
+            GLint legacyInternalFormat = 0;
+            GLenum legacyPixelFormat = 0;
+            if (Texture::selectLegacyFormat(internalformat, swizzle, legacyInternalFormat, legacyPixelFormat))
+            {
+                _pixelFormat = legacyPixelFormat;
+                _internalTextureFormat = legacyInternalFormat;
+            }
+        }
+#endif
+
         dirty();
     }
 #else

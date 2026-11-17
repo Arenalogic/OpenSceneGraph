@@ -365,7 +365,7 @@ void TextureCubeMap::apply(State& state) const
                 // no image present, but dimensions at set so less create the texture
                 glTexImage2D( faceTarget[n], 0, _internalFormat,
                              _textureWidth, _textureHeight, _borderWidth,
-                             _sourceFormat ? _sourceFormat : _internalFormat,
+                             selectUploadPixelFormat(_sourceFormat ? _sourceFormat : _internalFormat),
                              _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
                              0);
             }
@@ -484,7 +484,7 @@ void TextureCubeMap::allocateMipmap(State& state) const
             {
                 glTexImage2D( faceTarget[n], k, _internalFormat,
                             width, height, _borderWidth,
-                            _sourceFormat ? _sourceFormat : _internalFormat,
+                            selectUploadPixelFormat(_sourceFormat ? _sourceFormat : _internalFormat),
                             _sourceType ? _sourceType : GL_UNSIGNED_BYTE,
                             0);
             }

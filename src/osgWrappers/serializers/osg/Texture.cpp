@@ -65,6 +65,8 @@ static bool writeInternalFormat( osgDB::OutputStream& os, const osg::Texture& te
 {
     if ( os.isBinary() && tex.getInternalFormatMode()!=osg::Texture::USE_USER_DEFINED_FORMAT )
         os << GLENUM(GL_NONE) << std::endl;  // Avoid use of OpenGL extensions
+    else if ( tex.getLegacyInternalFormat()!=0 )
+        os << GLENUM(tex.getLegacyInternalFormat()) << std::endl;  // the format as set, not its GL core stand-in
     else
         os << GLENUM(tex.getInternalFormat()) << std::endl;
     return true;
