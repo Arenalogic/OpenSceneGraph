@@ -244,6 +244,13 @@ class OSGUTIL_EXPORT RenderStage : public RenderBin
         const RenderStageList& getPostRenderList() const { return _postRenderList; }
         RenderStageList& getPostRenderList() { return _postRenderList; }
 
+        /** Move every bin of source's bin list numbered firstBinNumber or above into this stage, after the cull
+          * (the bins keep their sorted leaves, which keep their StateGraph chains, so each leaf still draws under its
+          * own state). The moved bins and the bins nested in them get this stage as their stage; the moved bins get
+          * this stage as their parent. A number this stage already holds stays in source (warned once per process).
+          * Returns the number of bins moved. */
+        unsigned int takeBinsFrom(RenderStage& source, int firstBinNumber);
+
         /** Extract stats for current draw list. */
         bool getStats(Statistics& stats) const;
 

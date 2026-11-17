@@ -89,6 +89,10 @@ class OSGUTIL_EXPORT RenderBin : public osg::Object
 
         int getBinNum() const { return _binNum; }
 
+        /** Set this bin's parent and stage, and the stage of every bin nested in it (each nested bin keeps its own
+          * parent). The helper of RenderStage::takeBinsFrom, which moves bins from one stage into another. */
+        void reparent(RenderBin* parent, RenderStage* stage);
+
         StateGraphList& getStateGraphList() { return _stateGraphList; }
         const StateGraphList& getStateGraphList() const { return _stateGraphList; }
 

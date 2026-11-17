@@ -389,6 +389,16 @@ void RenderBin::copyLeavesFromStateGraphListToRenderLeafList()
     _stateGraphList.clear();
 }
 
+void RenderBin::reparent(RenderBin* parent, RenderStage* stage)
+{
+    _parent = parent;
+    _stage = stage;
+    for(RenderBinList::iterator itr = _bins.begin(); itr != _bins.end(); ++itr)
+    {
+        itr->second->reparent(this, stage);
+    }
+}
+
 RenderBin* RenderBin::find_or_insert(int binNum,const std::string& binName)
 {
     // search for appropriate bin.

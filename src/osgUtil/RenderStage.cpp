@@ -12,6 +12,8 @@
 */
 #include <stdio.h>
 
+#include <OpenThreads/Atomic>
+
 #include <osg/Notify>
 #include <osg/Texture1D>
 #include <osg/Texture2D>
@@ -210,6 +212,36 @@ void RenderStage::addPostRenderStage(RenderStage* rs, int order)
             _postRenderList.insert(itr,RenderStageOrderPair(order,rs));
         }
     }
+}
+
+unsigned int RenderStage::takeBinsFrom(RenderStage& source, int firstBinNumber)
+{
+    if (&source == this) return 0;
+
+    static OpenThreads::Atomic s_collisionWarned;
+
+    unsigned int moved = 0;
+    RenderBinList& sourceBins = source.getRenderBinList();
+    RenderBinList::iterator itr = sourceBins.lower_bound(firstBinNumber);
+    while(itr != sourceBins.end())
+    {
+        if (_bins.count(itr->first) != 0)
+        {
+            if (s_collisionWarned.exchange(1) == 0)
+            {
+                OSG_WARN<<"Warning: RenderStage::takeBinsFrom() leaves bin "<<itr->first<<" in its source stage, the target stage already holds that number (warned once)."<<std::endl;
+            }
+            ++itr;
+            continue;
+        }
+
+        RenderBin* bin = itr->second.get();
+        bin->reparent(this, this);
+        _bins[itr->first] = bin;
+        sourceBins.erase(itr++);
+        ++moved;
+    }
+    return moved;
 }
 
 void RenderStage::drawPreRenderStages(osg::RenderInfo& renderInfo,RenderLeaf*& previous)
