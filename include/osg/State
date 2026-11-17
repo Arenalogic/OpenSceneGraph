@@ -341,7 +341,7 @@ class OSG_EXPORT State : public Referenced
         enum ModeClass
         {
             CORE_MODE,              ///< defined for glEnable by the core profile
-            FIXED_FUNCTION_MODE,    ///< defined only by the compatibility profile, or never a glEnable capability at all (OSG's texture modes)
+            FIXED_FUNCTION_MODE,    ///< defined only by the compatibility profile or by an extension of the fixed-function pipeline, or never a glEnable capability at all (OSG's texture modes)
             UNKNOWN_MODE            ///< neither table: an extension's capability, passed through
         };
 

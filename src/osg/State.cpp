@@ -66,7 +66,9 @@ namespace
 
     // The glEnable capabilities the core profile does not have (the OpenGL 4.6 compatibility profile's enables minus the
     // core list below), plus OSG's texture modes that were never a glEnable capability on any profile (TextureGLModeSet in
-    // StateSet.cpp). Sorted by value. On a build without fixed function State creates these invalid (State::ModeMap).
+    // StateSet.cpp), plus the enables of the extensions that configure the fixed-function pipeline the core profile removed
+    // (GL_STENCIL_TEST_TWO_SIDE is in the .osgt mode table; core has glStencilFuncSeparate, which StencilTwoSided uses from
+    // GL 2.0). Sorted by value. On a build without fixed function State creates these invalid (State::ModeMap).
     const NamedMode s_fixedFunctionModes[] =
     {
         {0x0B10, "GL_POINT_SMOOTH"},
@@ -121,13 +123,20 @@ namespace
         {0x80D0, "GL_COLOR_TABLE"},
         {0x80D1, "GL_POST_CONVOLUTION_COLOR_TABLE"},
         {0x80D2, "GL_POST_COLOR_MATRIX_COLOR_TABLE"},
+        {0x81FB, "GL_SHARED_TEXTURE_PALETTE_EXT"},
         {0x8458, "GL_COLOR_SUM"},
         {0x84F5, "GL_TEXTURE_RECTANGLE"},
         {0x8513, "GL_TEXTURE_CUBE_MAP"},
+        {0x8522, "GL_REGISTER_COMBINERS_NV"},
+        {0x8535, "GL_PER_STAGE_CONSTANTS_NV"},
         {0x8620, "GL_VERTEX_PROGRAM_ARB"},
         {0x8643, "GL_VERTEX_PROGRAM_TWO_SIDE"},
+        {0x86DE, "GL_TEXTURE_SHADER_NV"},
         {0x8804, "GL_FRAGMENT_PROGRAM_ARB"},
         {0x8861, "GL_POINT_SPRITE"},
+        {0x8870, "GL_FRAGMENT_PROGRAM_NV"},
+        {0x8910, "GL_STENCIL_TEST_TWO_SIDE"},
+        {0x8920, "GL_FRAGMENT_SHADER_ATI"},
         {0x8C1A, "GL_TEXTURE_2D_ARRAY"},
         {0x8C2A, "GL_TEXTURE_BUFFER"},
         {0x9100, "GL_TEXTURE_2D_MULTISAMPLE"},
