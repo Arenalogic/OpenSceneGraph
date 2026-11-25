@@ -13,4 +13,5 @@ SET(TARGET_COMMON_LIBRARIES
 ADD_SUBDIRECTORY(osgstatemodes)
 ADD_SUBDIRECTORY(osgcoreformats)
 ADD_SUBDIRECTORY(osgcoreformatsgl)
+ADD_SUBDIRECTORY(osgcorecontextgl)
 ADD_SUBDIRECTORY(osgrenderstagetakebins)

@@ -160,20 +160,21 @@ namespace
         float expected[4];      // the legacy sample
         GLenum readbackPixelFormat;     // 0: no legacy label expected
         GLint readbackInternalFormat;
+        GLint readbackAltInternalFormat; // 0: exact match required; non-zero: unsized base format allowed by GL 4.6 sec. 8.11.3
     };
 
     const float L = 64.0f / 255.0f, A = 192.0f / 255.0f;
 
     const FormatCase s_formats[] =
     {
-        { "GL_LUMINANCE8",          GL_LUMINANCE8,          GL_LUMINANCE,       GL_UNSIGNED_BYTE, { L, 0 }, { L, L, L, 1 }, GL_LUMINANCE,       GL_LUMINANCE8 },
-        { "luminance (1)",          1,                      GL_LUMINANCE,       GL_UNSIGNED_BYTE, { L, 0 }, { L, L, L, 1 }, GL_LUMINANCE,       GL_LUMINANCE8 },
-        { "GL_ALPHA8",              GL_ALPHA8,              GL_ALPHA,           GL_UNSIGNED_BYTE, { A, 0 }, { 0, 0, 0, A }, GL_ALPHA,           GL_ALPHA8 },
-        { "GL_ALPHA",               GL_ALPHA,               GL_ALPHA,           GL_UNSIGNED_BYTE, { A, 0 }, { 0, 0, 0, A }, GL_ALPHA,           GL_ALPHA8 },
-        { "GL_LUMINANCE8_ALPHA8",   GL_LUMINANCE8_ALPHA8,   GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, { L, A }, { L, L, L, A }, GL_LUMINANCE_ALPHA, GL_LUMINANCE8_ALPHA8 },
-        { "GL_INTENSITY8",          GL_INTENSITY8,          GL_LUMINANCE,       GL_UNSIGNED_BYTE, { L, 0 }, { L, L, L, L }, GL_LUMINANCE,       GL_INTENSITY8 },
-        { "GL_LUMINANCE32F",        GL_LUMINANCE32F_ARB,    GL_LUMINANCE,       GL_FLOAT,         { L, 0 }, { L, L, L, 1 }, GL_LUMINANCE,       GL_LUMINANCE32F_ARB },
-        { "GL_RGBA8 from luminance data", GL_RGBA8,         GL_LUMINANCE,       GL_UNSIGNED_BYTE, { L, 0 }, { L, L, L, 1 }, 0,                  0 },
+        { "GL_LUMINANCE8",          GL_LUMINANCE8,          GL_LUMINANCE,       GL_UNSIGNED_BYTE, { L, 0 }, { L, L, L, 1 }, GL_LUMINANCE,       GL_LUMINANCE8,       0 },
+        { "luminance (1)",          1,                      GL_LUMINANCE,       GL_UNSIGNED_BYTE, { L, 0 }, { L, L, L, 1 }, GL_LUMINANCE,       GL_LUMINANCE8,       GL_LUMINANCE },
+        { "GL_ALPHA8",              GL_ALPHA8,              GL_ALPHA,           GL_UNSIGNED_BYTE, { A, 0 }, { 0, 0, 0, A }, GL_ALPHA,           GL_ALPHA8,           0 },
+        { "GL_ALPHA",               GL_ALPHA,               GL_ALPHA,           GL_UNSIGNED_BYTE, { A, 0 }, { 0, 0, 0, A }, GL_ALPHA,           GL_ALPHA8,           GL_ALPHA },
+        { "GL_LUMINANCE8_ALPHA8",   GL_LUMINANCE8_ALPHA8,   GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, { L, A }, { L, L, L, A }, GL_LUMINANCE_ALPHA, GL_LUMINANCE8_ALPHA8, 0 },
+        { "GL_INTENSITY8",          GL_INTENSITY8,          GL_LUMINANCE,       GL_UNSIGNED_BYTE, { L, 0 }, { L, L, L, L }, GL_LUMINANCE,       GL_INTENSITY8,       0 },
+        { "GL_LUMINANCE32F",        GL_LUMINANCE32F_ARB,    GL_LUMINANCE,       GL_FLOAT,         { L, 0 }, { L, L, L, 1 }, GL_LUMINANCE,       GL_LUMINANCE32F_ARB, 0 },
+        { "GL_RGBA8 from luminance data", GL_RGBA8,         GL_LUMINANCE,       GL_UNSIGNED_BYTE, { L, 0 }, { L, L, L, 1 }, 0,                  0,                   0 },
     };
 
     void checkFormat(osg::State& state, const Sampler& sampler, const FormatCase& c)
@@ -217,8 +218,11 @@ namespace
         {
             check(back->getPixelFormat() == c.readbackPixelFormat,
                   std::string(c.name) + ": the readback's pixel format is " + hex(back->getPixelFormat()) + ", expected " + hex(c.readbackPixelFormat));
-            check(back->getInternalTextureFormat() == c.readbackInternalFormat,
-                  std::string(c.name) + ": the readback's internal format is " + hex(back->getInternalTextureFormat()) + ", expected " + hex(c.readbackInternalFormat));
+            const bool internalOk = back->getInternalTextureFormat() == c.readbackInternalFormat ||
+                                    (c.readbackAltInternalFormat != 0 && back->getInternalTextureFormat() == c.readbackAltInternalFormat);
+            check(internalOk,
+                  std::string(c.name) + ": the readback's internal format is " + hex(back->getInternalTextureFormat()) + ", expected " + hex(c.readbackInternalFormat) +
+                  (c.readbackAltInternalFormat != 0 ? " or " + hex(c.readbackAltInternalFormat) : std::string()));
             const unsigned int bytes = channels * (c.dataType == GL_FLOAT ? 4u : 1u);
             check(back->data() != 0 && std::memcmp(back->data(), image->data(), bytes) == 0, std::string(c.name) + ": the readback holds the uploaded bytes");
         }
