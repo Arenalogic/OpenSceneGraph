@@ -592,6 +592,38 @@ class OSG_EXPORT State : public Referenced
         /** Dirty the modes attributes previously applied in osg::State.*/
         void dirtyAllAttributes();
 
+        /** RAII guard reconciling osg::State and GL around a raw-GL external rendering section
+          * (such as a third-party SDK or custom GL pass invoked inside an OSG draw) without glGet* queries.
+          *
+          * On construction: unbinds pixel pack/unpack buffers and snapshots OSG's tracked valid GL modes
+          * and current Viewport.
+          * On reconcile() or destruction (idempotent): resets raw GL bindings (VAO 0, program 0, array,
+          * element and pixel buffers 0, active texture unit 0, recorded Viewport) and synchronises OSG's
+          * caches, dirties all attributes except positional CLIPPLANE entries, restores GL's tracked modes
+          * to the snapshotted values (avoiding dirtyAllModes()'s cache-flip trap), and dirties texture
+          * modes and vertex arrays. */
+        class OSG_EXPORT ExternalSectionGuard
+        {
+        public:
+            explicit ExternalSectionGuard(State& state);
+            ~ExternalSectionGuard();
+
+            /** Reconcile now; subsequent calls and the destructor become no-ops. */
+            void reconcile();
+
+            bool isReconciled() const { return _reconciled; }
+
+        private:
+            ExternalSectionGuard(const ExternalSectionGuard&);
+            ExternalSectionGuard& operator=(const ExternalSectionGuard&);
+
+            State& _state;
+            bool _reconciled;
+            bool _hasViewport;
+            GLint _viewport[4];
+            std::vector< std::pair<StateAttribute::GLMode, bool> > _recordedModes;
+        };
+
 
         /** Proxy helper class for applyig a VertexArrayState in a local scope, with the preivous value being resotred automatically on leaving the scope that proxy was created.*/
         struct SetCurrentVertexArrayStateProxy

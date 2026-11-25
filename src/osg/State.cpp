@@ -1314,6 +1314,142 @@ void State::dirtyAllAttributes()
 
 }
 
+#ifndef GL_ARRAY_BUFFER
+    #define GL_ARRAY_BUFFER 0x8892
+#endif
+#ifndef GL_ELEMENT_ARRAY_BUFFER
+    #define GL_ELEMENT_ARRAY_BUFFER 0x8893
+#endif
+#ifndef GL_PIXEL_PACK_BUFFER
+    #define GL_PIXEL_PACK_BUFFER 0x88EB
+#endif
+#ifndef GL_PIXEL_UNPACK_BUFFER
+    #define GL_PIXEL_UNPACK_BUFFER 0x88EC
+#endif
+#ifndef GL_TEXTURE0
+    #define GL_TEXTURE0 0x84C0
+#endif
+
+State::ExternalSectionGuard::ExternalSectionGuard(State& state)
+    : _state(state)
+    , _reconciled(false)
+    , _hasViewport(false)
+{
+    _viewport[0] = _viewport[1] = _viewport[2] = _viewport[3] = 0;
+
+    if (const Viewport* currentViewport = _state.getCurrentViewport())
+    {
+        _viewport[0] = static_cast<GLint>(currentViewport->x());
+        _viewport[1] = static_cast<GLint>(currentViewport->y());
+        _viewport[2] = static_cast<GLint>(currentViewport->width());
+        _viewport[3] = static_cast<GLint>(currentViewport->height());
+        _hasViewport = true;
+    }
+
+    const ModeMap& modeMap = _state.getModeMap();
+    _recordedModes.reserve(modeMap.size());
+    for (ModeMap::const_iterator itr = modeMap.begin(); itr != modeMap.end(); ++itr)
+    {
+        if (itr->second.valid)
+        {
+            _recordedModes.push_back(std::make_pair(itr->first, itr->second.last_applied_value));
+        }
+    }
+
+    // Unbind pixel buffers on entry so external texture uploads cannot hit GL_INVALID_OPERATION.
+    const GLExtensions* ext = _state.get<GLExtensions>();
+    if (ext && ext->glBindBuffer)
+    {
+        ext->glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        ext->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    }
+    _state.setCurrentPixelBufferObject(0);
+}
+
+State::ExternalSectionGuard::~ExternalSectionGuard()
+{
+    reconcile();
+}
+
+void State::ExternalSectionGuard::reconcile()
+{
+    if (_reconciled) return;
+    _reconciled = true;
+
+    const GLExtensions* ext = _state.get<GLExtensions>();
+
+    // Restore neutral GL bindings and recorded viewport.
+    if (_hasViewport)
+    {
+        glViewport(_viewport[0], _viewport[1], _viewport[2], _viewport[3]);
+    }
+    if (ext && ext->glBindVertexArray)
+    {
+        ext->glBindVertexArray(0);
+    }
+    if (ext && ext->glUseProgram)
+    {
+        ext->glUseProgram(0);
+    }
+    if (ext && ext->glBindBuffer)
+    {
+        ext->glBindBuffer(GL_ARRAY_BUFFER, 0);
+        ext->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        ext->glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        ext->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    }
+    if (ext && ext->glActiveTexture)
+    {
+        ext->glActiveTexture(GL_TEXTURE0);
+    }
+
+    // Synchronise osg::State caches to match the neutral GL bindings.
+    _state.setLastAppliedProgramObject(0);
+    _state.setCurrentVertexArrayObject(0);
+    _state.setCurrentPixelBufferObject(0);
+    _state._currentActiveTextureUnit = 0;
+    if (VertexArrayState* vas = _state.getCurrentVertexArrayState())
+    {
+        vas->resetBufferObjectPointers();
+    }
+
+    // Dirty all attributes except positional CLIPPLANE entries so subsequent world draws do not
+    // re-apply clip planes under their own modelview matrices.
+    std::vector<const StateAttribute*> clipPlanes;
+    for (AttributeMap::const_iterator itr = _state._attributeMap.begin(); itr != _state._attributeMap.end(); ++itr)
+    {
+        if (itr->first.first == StateAttribute::CLIPPLANE && itr->second.last_applied_attribute != 0)
+        {
+            clipPlanes.push_back(itr->second.last_applied_attribute);
+        }
+    }
+    _state.dirtyAllAttributes();
+    for (std::vector<const StateAttribute*>::const_iterator itr = clipPlanes.begin(); itr != clipPlanes.end(); ++itr)
+    {
+        _state.haveAppliedAttribute(*itr);
+    }
+
+    // Restore GL's tracked modes to the snapshotted cache values rather than calling dirtyAllModes(),
+    // which flips cached values and skips re-enabling when external code left the opposite state.
+    for (std::vector< std::pair<StateAttribute::GLMode, bool> >::const_iterator itr = _recordedModes.begin();
+         itr != _recordedModes.end(); ++itr)
+    {
+        if (itr->second) glEnable(itr->first);
+        else glDisable(itr->first);
+    }
+
+    // Dirty per-unit texture modes and vertex arrays.
+    for (unsigned int unit = 0; unit < _state._textureModeMapList.size(); ++unit)
+    {
+        const ModeMap& texModes = _state._textureModeMapList[unit];
+        for (ModeMap::const_iterator itr = texModes.begin(); itr != texModes.end(); ++itr)
+        {
+            _state.haveAppliedTextureMode(unit, itr->first);
+        }
+    }
+    _state.dirtyAllVertexArrays();
+}
+
 
 Polytope State::getViewFrustum() const
 {
