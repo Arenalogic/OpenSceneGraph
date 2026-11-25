@@ -222,11 +222,19 @@ int main(int, char**)
     traits->height = 16;
     traits->windowDecoration = false;
     traits->doubleBuffer = false;
-    traits->hidden = true;
+    traits->pbuffer = true;
+    traits->hidden = false;
     traits->windowName = "osgrenderstagetakebins";
 
     osg::ref_ptr<osg::GraphicsContext> context = osg::GraphicsContext::createGraphicsContext(traits.get());
-    const bool haveContext = context.valid() && context->realize() && context->makeCurrent();
+    bool haveContext = context.valid() && context->realize() && context->makeCurrent();
+    if (!haveContext)
+    {
+        traits->pbuffer = false;
+        traits->hidden = true;
+        context = osg::GraphicsContext::createGraphicsContext(traits.get());
+        haveContext = context.valid() && context->realize() && context->makeCurrent();
+    }
     if (haveContext)
     {
         const char* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));

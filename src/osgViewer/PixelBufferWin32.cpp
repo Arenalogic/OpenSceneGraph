@@ -273,7 +273,10 @@ public:
         _handle(0),
         _dc(0),
         _context(0),
-        _instance(0)
+        _instance(0),
+        _prevDc(0),
+        _prevContext(0),
+        _savedPrev(false)
     {
         create();
     }
@@ -291,7 +294,10 @@ protected:
         _handle(0),
         _dc(0),
         _context(0),
-        _instance(0) {}
+        _instance(0),
+        _prevDc(0),
+        _prevContext(0),
+        _savedPrev(false) {}
 
     TemporaryWindow &operator=(const TemporaryWindow &) { return *this; }
 
@@ -303,6 +309,9 @@ private:
     HDC _dc;
     HGLRC _context;
     HINSTANCE _instance;
+    HDC _prevDc;
+    HGLRC _prevContext;
+    bool _savedPrev;
     std::string _classname;
 };
 
@@ -399,13 +408,31 @@ TemporaryWindow::~TemporaryWindow()
 
 void TemporaryWindow::kill()
 {
+    // Restore whatever WGL context was current before TemporaryWindow::makeCurrent(), matching
+    // GraphicsWindowWin32's sample OpenGLContext fix so creating a pbuffer while another context is
+    // current leaves that context current.
+    if (_savedPrev)
+    {
+        if (_prevContext)
+        {
+            wglMakeCurrent(_prevDc, _prevContext);
+        }
+        else if (wglGetCurrentContext() == _context)
+        {
+            wglMakeCurrent(NULL, NULL);
+        }
+        _prevDc = 0;
+        _prevContext = 0;
+        _savedPrev = false;
+    }
+
     if (_context)
     {
-        // mew 2005-05-09 commented out due to crashes.
-        // possible causes are unsafe destructor ordering, or context already
-        // deleted by window deletion; see:
-        // http://openscenegraph.org/pipermail/osg-users/2005-May/052753.html
-        //wglDeleteContext(_context);
+        if (wglGetCurrentContext() == _context)
+        {
+            wglMakeCurrent(NULL, NULL);
+        }
+        wglDeleteContext(_context);
         _context = 0;
     }
 
@@ -427,6 +454,12 @@ void TemporaryWindow::kill()
 
 bool TemporaryWindow::makeCurrent()
 {
+    if (!_savedPrev)
+    {
+        _prevContext = wglGetCurrentContext();
+        _prevDc = _prevContext ? wglGetCurrentDC() : 0;
+        _savedPrev = true;
+    }
     bool result = wglMakeCurrent(_dc, _context) == TRUE ? true : false;
     if (!result)
     {
@@ -778,7 +811,12 @@ void PixelBufferWin32::closeImplementation()
     {
         WGLExtensions* wgle = WGLExtensions::instance();
 
-        wglMakeCurrent(NULL,NULL);
+        // Release only if this pbuffer's context is the currently bound one, so closing an inactive
+        // pbuffer does not unbind another context that is current on this thread.
+        if (wglGetCurrentContext() == _hglrc)
+        {
+            wglMakeCurrent(NULL, NULL);
+        }
 
         if ( !wglDeleteContext(_hglrc) )
         {

@@ -276,20 +276,27 @@ int main(int, char**)
     std::cout << "osgcoreformatsgl: skipped, a build with legacy texture formats maps none" << std::endl;
     return kSkip;
 #else
-    osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits;
-    traits->x = 0;
-    traits->y = 0;
-    traits->width = 16;
-    traits->height = 16;
-    traits->windowDecoration = false;
-    traits->doubleBuffer = false;
-    traits->hidden = true;
-    traits->windowName = "osgcoreformatsgl";
-
-    osg::ref_ptr<osg::GraphicsContext> context = osg::GraphicsContext::createGraphicsContext(traits.get());
-    if (!context.valid() || !context->realize() || !context->makeCurrent())
+    osg::ref_ptr<osg::GraphicsContext> context;
+    std::string requestedVersion;
+    for (int attempt = 0; attempt < 2 && !context.valid(); ++attempt)
     {
-        std::cout << "osgcoreformatsgl: skipped, no GL context (traits ask for " << traits->glContextVersion << ")" << std::endl;
+        osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits;
+        traits->x = 0;
+        traits->y = 0;
+        traits->width = 16;
+        traits->height = 16;
+        traits->windowDecoration = false;
+        traits->doubleBuffer = false;
+        traits->pbuffer = (attempt == 0);
+        traits->hidden = (attempt != 0);
+        traits->windowName = "osgcoreformatsgl";
+        requestedVersion = traits->glContextVersion;
+        osg::ref_ptr<osg::GraphicsContext> candidate = osg::GraphicsContext::createGraphicsContext(traits.get());
+        if (candidate.valid() && candidate->realize() && candidate->makeCurrent()) context = candidate;
+    }
+    if (!context.valid())
+    {
+        std::cout << "osgcoreformatsgl: skipped, no GL context (traits ask for " << requestedVersion << ")" << std::endl;
         return kSkip;
     }
 

@@ -105,19 +105,25 @@ namespace
 
     osg::ref_ptr<osg::GraphicsContext> createCoreContext(const char* name)
     {
-        osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits;
-        traits->x = 0;
-        traits->y = 0;
-        traits->width = 16;
-        traits->height = 16;
-        traits->windowDecoration = false;
-        traits->doubleBuffer = false;
-        traits->hidden = true;
-        traits->windowName = name;
-        traits->glContextVersion = "4.6";
-        traits->glContextProfileMask = GL_CONTEXT_CORE_PROFILE_BIT;
-        traits->glContextFlags = kCreateForwardCompatibleBit;
-        return osg::GraphicsContext::createGraphicsContext(traits.get());
+        for (int attempt = 0; attempt < 2; ++attempt)
+        {
+            osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits;
+            traits->x = 0;
+            traits->y = 0;
+            traits->width = 16;
+            traits->height = 16;
+            traits->windowDecoration = false;
+            traits->doubleBuffer = false;
+            traits->pbuffer = (attempt == 0);
+            traits->hidden = (attempt != 0);
+            traits->windowName = name;
+            traits->glContextVersion = "4.6";
+            traits->glContextProfileMask = GL_CONTEXT_CORE_PROFILE_BIT;
+            traits->glContextFlags = kCreateForwardCompatibleBit;
+            osg::ref_ptr<osg::GraphicsContext> gc = osg::GraphicsContext::createGraphicsContext(traits.get());
+            if (gc.valid() && gc->realize()) return gc;
+        }
+        return 0;
     }
 
     // Draws a fullscreen triangle reading vec4 color from UBO binding = 0 and records the GL-bound buffer name.
