@@ -251,6 +251,36 @@ class OSGUTIL_EXPORT RenderStage : public RenderBin
           * Returns the number of bins moved. */
         unsigned int takeBinsFrom(RenderStage& source, int firstBinNumber);
 
+        /** Generic indexed buffer binding applied while this stage draws its bins
+          * (e.g. GL_UNIFORM_BUFFER / GL_SHADER_STORAGE_BUFFER per-camera block).
+          * When size > 0, glBindBufferRange(target, index, buffer, offset, size) is used;
+          * otherwise glBindBufferBase(target, index, buffer). On stage exit the enclosing
+          * stage's binding for (target, index) is restored, or 0 if none. */
+        struct BlockBinding
+        {
+            GLenum      target;
+            GLuint      index;
+            GLuint      buffer;
+            GLintptr    offset;
+            GLsizeiptr  size;
+
+            BlockBinding(GLenum t = 0, GLuint i = 0, GLuint b = 0, GLintptr o = 0, GLsizeiptr s = 0)
+                : target(t), index(i), buffer(b), offset(o), size(s) {}
+        };
+        typedef std::vector<BlockBinding> BlockBindingList;
+
+        /** Set or replace the per-stage indexed buffer binding for (target, index). */
+        void setBlockBinding(GLenum target, GLuint index, GLuint buffer, GLintptr offset = 0, GLsizeiptr size = 0);
+
+        /** Remove the per-stage indexed buffer binding for (target, index). */
+        void removeBlockBinding(GLenum target, GLuint index);
+
+        /** Remove all per-stage indexed buffer bindings. */
+        void clearBlockBindings();
+
+        /** Get all per-stage indexed buffer bindings. */
+        const BlockBindingList& getBlockBindings() const { return _blockBindings; }
+
         /** Extract stats for current draw list. */
         bool getStats(Statistics& stats) const;
 
@@ -333,6 +363,8 @@ protected:
         mutable osg::Matrix                         _inheritedPositionalStateContainerMatrix;
         mutable osg::ref_ptr<PositionalStateContainer>   _inheritedPositionalStateContainer;
         mutable osg::ref_ptr<PositionalStateContainer>   _renderStageLighting;
+
+        BlockBindingList                            _blockBindings;
 
 
 };

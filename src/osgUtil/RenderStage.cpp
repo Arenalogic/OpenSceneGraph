@@ -13,6 +13,8 @@
 #include <stdio.h>
 
 #include <OpenThreads/Atomic>
+#include <OpenThreads/Mutex>
+#include <OpenThreads/ScopedLock>
 
 #include <osg/Notify>
 #include <osg/Texture1D>
@@ -123,7 +125,8 @@ RenderStage::RenderStage(const RenderStage& rhs,const osg::CopyOp& copyop):
         _imageReadPixelFormat(rhs._imageReadPixelFormat),
         _imageReadPixelDataType(rhs._imageReadPixelDataType),
         _disableFboAfterRender(rhs._disableFboAfterRender),
-        _renderStageLighting(rhs._renderStageLighting)
+        _renderStageLighting(rhs._renderStageLighting),
+        _blockBindings(rhs._blockBindings)
 {
     _stage = this;
 }
@@ -242,6 +245,175 @@ unsigned int RenderStage::takeBinsFrom(RenderStage& source, int firstBinNumber)
         ++moved;
     }
     return moved;
+}
+
+namespace
+{
+    typedef std::pair<GLenum, GLuint> BlockBindingKey;
+    typedef std::map<BlockBindingKey, std::vector<RenderStage::BlockBinding> > StateBindingStacks;
+    typedef std::map<const osg::State*, StateBindingStacks> ActiveStageBindingsMap;
+
+    OpenThreads::Mutex& activeStageBindingsMutex()
+    {
+        static OpenThreads::Mutex s_mutex;
+        return s_mutex;
+    }
+
+    ActiveStageBindingsMap& activeStageBindings()
+    {
+        static ActiveStageBindingsMap s_map;
+        return s_map;
+    }
+
+    void notifyStateAttributeForTarget(osg::State& state, GLenum target, GLuint index)
+    {
+#ifdef GL_UNIFORM_BUFFER
+        if (target == GL_UNIFORM_BUFFER)
+        {
+            state.haveAppliedAttribute(osg::StateAttribute::UNIFORMBUFFERBINDING, index);
+            return;
+        }
+#endif
+#ifdef GL_SHADER_STORAGE_BUFFER
+        if (target == GL_SHADER_STORAGE_BUFFER)
+        {
+            state.haveAppliedAttribute(osg::StateAttribute::SHADERSTORAGEBUFFERBINDING, index);
+            return;
+        }
+#endif
+#ifdef GL_TRANSFORM_FEEDBACK_BUFFER
+        if (target == GL_TRANSFORM_FEEDBACK_BUFFER)
+        {
+            state.haveAppliedAttribute(osg::StateAttribute::TRANSFORMFEEDBACKBUFFERBINDING, index);
+            return;
+        }
+#endif
+#ifdef GL_ATOMIC_COUNTER_BUFFER
+        if (target == GL_ATOMIC_COUNTER_BUFFER)
+        {
+            state.haveAppliedAttribute(osg::StateAttribute::ATOMICCOUNTERBUFFERBINDING, index);
+            return;
+        }
+#endif
+    }
+
+    void applyBlockBindingToGL(osg::State& state, const osg::GLExtensions& ext, const RenderStage::BlockBinding& binding)
+    {
+        if (binding.buffer != 0 && binding.size > 0 && ext.glBindBufferRange)
+        {
+            ext.glBindBufferRange(binding.target, binding.index, binding.buffer, binding.offset, binding.size);
+        }
+        else if (ext.glBindBufferBase)
+        {
+            ext.glBindBufferBase(binding.target, binding.index, binding.buffer);
+        }
+        notifyStateAttributeForTarget(state, binding.target, binding.index);
+    }
+
+    // RAII guard applying a RenderStage's per-stage block bindings for the duration of RenderBin::draw(),
+    // restoring the enclosing stage's bindings (or buffer 0) on exit.
+    class ScopedStageBlockBindings
+    {
+    public:
+        ScopedStageBlockBindings(osg::State& state, const RenderStage::BlockBindingList& bindings)
+            : _state(state), _ext(0), _bindings(bindings), _active(false)
+        {
+            if (_bindings.empty()) return;
+            _ext = _state.get<osg::GLExtensions>();
+            if (!_ext || (!_ext->glBindBufferRange && !_ext->glBindBufferBase)) return;
+
+            {
+                OpenThreads::ScopedLock<OpenThreads::Mutex> lock(activeStageBindingsMutex());
+                StateBindingStacks& stacks = activeStageBindings()[&_state];
+                for (RenderStage::BlockBindingList::const_iterator itr = _bindings.begin(); itr != _bindings.end(); ++itr)
+                {
+                    stacks[BlockBindingKey(itr->target, itr->index)].push_back(*itr);
+                }
+            }
+            for (RenderStage::BlockBindingList::const_iterator itr = _bindings.begin(); itr != _bindings.end(); ++itr)
+            {
+                applyBlockBindingToGL(_state, *_ext, *itr);
+            }
+            _active = true;
+        }
+
+        ~ScopedStageBlockBindings()
+        {
+            if (!_active) return;
+
+            std::vector<RenderStage::BlockBinding> toRestore;
+            toRestore.reserve(_bindings.size());
+            {
+                OpenThreads::ScopedLock<OpenThreads::Mutex> lock(activeStageBindingsMutex());
+                ActiveStageBindingsMap& all = activeStageBindings();
+                ActiveStageBindingsMap::iterator stateIt = all.find(&_state);
+                for (RenderStage::BlockBindingList::const_reverse_iterator itr = _bindings.rbegin(); itr != _bindings.rend(); ++itr)
+                {
+                    RenderStage::BlockBinding restored(itr->target, itr->index, 0, 0, 0);
+                    if (stateIt != all.end())
+                    {
+                        StateBindingStacks::iterator keyIt = stateIt->second.find(BlockBindingKey(itr->target, itr->index));
+                        if (keyIt != stateIt->second.end())
+                        {
+                            if (!keyIt->second.empty()) keyIt->second.pop_back();
+                            if (!keyIt->second.empty()) restored = keyIt->second.back();
+                            else stateIt->second.erase(keyIt);
+                        }
+                    }
+                    toRestore.push_back(restored);
+                }
+                if (stateIt != all.end() && stateIt->second.empty())
+                {
+                    all.erase(stateIt);
+                }
+            }
+            for (std::vector<RenderStage::BlockBinding>::const_iterator itr = toRestore.begin(); itr != toRestore.end(); ++itr)
+            {
+                applyBlockBindingToGL(_state, *_ext, *itr);
+            }
+        }
+
+    private:
+        ScopedStageBlockBindings(const ScopedStageBlockBindings&);
+        ScopedStageBlockBindings& operator=(const ScopedStageBlockBindings&);
+
+        osg::State& _state;
+        const osg::GLExtensions* _ext;
+        RenderStage::BlockBindingList _bindings;
+        bool _active;
+    };
+}
+
+void RenderStage::setBlockBinding(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size)
+{
+    for (BlockBindingList::iterator itr = _blockBindings.begin(); itr != _blockBindings.end(); ++itr)
+    {
+        if (itr->target == target && itr->index == index)
+        {
+            itr->buffer = buffer;
+            itr->offset = offset;
+            itr->size = size;
+            return;
+        }
+    }
+    _blockBindings.push_back(BlockBinding(target, index, buffer, offset, size));
+}
+
+void RenderStage::removeBlockBinding(GLenum target, GLuint index)
+{
+    for (BlockBindingList::iterator itr = _blockBindings.begin(); itr != _blockBindings.end(); ++itr)
+    {
+        if (itr->target == target && itr->index == index)
+        {
+            _blockBindings.erase(itr);
+            return;
+        }
+    }
+}
+
+void RenderStage::clearBlockBindings()
+{
+    _blockBindings.clear();
 }
 
 void RenderStage::drawPreRenderStages(osg::RenderInfo& renderInfo,RenderLeaf*& previous)
@@ -1027,8 +1199,11 @@ void RenderStage::drawInner(osg::RenderInfo& renderInfo,RenderLeaf*& previous, b
         _fbo->apply(state);
     }
 
-    // do the drawing itself.
-    RenderBin::draw(renderInfo,previous);
+    // do the drawing itself, with any per-stage generic block bindings active for this stage's bins.
+    {
+        ScopedStageBlockBindings scopedBindings(state, _blockBindings);
+        RenderBin::draw(renderInfo,previous);
+    }
 
 
     if(state.getCheckForGLErrors()!=osg::State::NEVER_CHECK_GL_ERRORS)
@@ -1693,4 +1868,10 @@ void RenderStage::releaseGLObjects(osg::State* state) const
     if (_fbo.valid()) _fbo->releaseGLObjects(state);
     if (_resolveFbo.valid()) _resolveFbo->releaseGLObjects(state);
     if (_graphicsContext.valid())  _graphicsContext->releaseGLObjects(state);
+
+    if (state)
+    {
+        OpenThreads::ScopedLock<OpenThreads::Mutex> lock(activeStageBindingsMutex());
+        activeStageBindings().erase(state);
+    }
 }
