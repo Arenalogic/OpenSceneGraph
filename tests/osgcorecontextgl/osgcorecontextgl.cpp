@@ -17,6 +17,9 @@
  *     errors and exact readback colour.
  *  5. Second hidden context creation preserves the first context as current (Win32 sample-context preservation): while
  *     context A is current, realizing a second hidden context B leaves context A usable with zero GL errors.
+ *  6. Program::apply() deduplication: redundant applies of the same linked PerContextProgram skip glUseProgram, while
+ *     haveAppliedAttribute(PROGRAM), dirtyAllAttributes(), ExternalSectionGuard, program/define switches, relinks, and
+ *     releaseGLObjects() invalidate or re-bind cleanly with zero GL errors.
  *
  * Exit code 0 when every check holds, 1 otherwise (each failed check is printed), 77 when skipped.
  */
@@ -280,6 +283,154 @@ namespace
             << ") matches expected (" << expected[0] << ", " << expected[1] << ", " << expected[2] << ", " << expected[3] << ")";
         check(match, msg.str());
     }
+
+    GLint currentGlProgram()
+    {
+        GLint prog = 0;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+        return prog;
+    }
+
+    void checkProgramApplyDedup(osg::State& state)
+    {
+        const osg::GLExtensions* ext = state.get<osg::GLExtensions>();
+        check(ext != 0 && ext->glUseProgram != 0, "program dedup: GLExtensions loaded");
+        if (!ext || !ext->glUseProgram) return;
+
+        osg::ref_ptr<osg::Program> progA = new osg::Program;
+        progA->addShader(new osg::Shader(osg::Shader::VERTEX,
+            "#version 460 core\n"
+            "void main() { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }\n"));
+        progA->addShader(new osg::Shader(osg::Shader::FRAGMENT,
+            "#version 460 core\n"
+            "#pragma import_defines(ALT_COLOR)\n"
+            "out vec4 out_col;\n"
+            "void main() {\n"
+            "#ifdef ALT_COLOR\n"
+            "    out_col = vec4(1.0, 0.0, 0.0, 1.0);\n"
+            "#else\n"
+            "    out_col = vec4(0.0, 1.0, 0.0, 1.0);\n"
+            "#endif\n"
+            "}\n"));
+
+        osg::ref_ptr<osg::Program> progB = new osg::Program;
+        progB->addShader(new osg::Shader(osg::Shader::VERTEX,
+            "#version 460 core\n"
+            "void main() { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }\n"));
+        progB->addShader(new osg::Shader(osg::Shader::FRAGMENT,
+            "#version 460 core\n"
+            "out vec4 out_col;\n"
+            "void main() { out_col = vec4(0.0, 0.0, 1.0, 1.0); }\n"));
+
+        drainGlErrors();
+
+        // 1. Initial apply links and binds progA.
+        osg::ref_ptr<osg::StateSet> ssA = new osg::StateSet;
+        ssA->setAttributeAndModes(progA.get(), osg::StateAttribute::ON);
+        state.apply(ssA.get());
+        const osg::Program::PerContextProgram* pcpA = state.getLastAppliedProgramObject();
+        check(pcpA != 0 && pcpA->getHandle() != 0, "program dedup: initial apply produces valid PCP");
+        if (!pcpA) return;
+        check(currentGlProgram() == static_cast<GLint>(pcpA->getHandle()), "program dedup: initial apply binds GL program");
+
+        // 2. Redundant apply of the same PCP skips glUseProgram (verified by perturbing GL without notifying osg::State).
+        ext->glUseProgram(0);
+        progA->apply(state);
+        check(currentGlProgram() == 0, "program dedup: redundant Program::apply skips glUseProgram for same PCP");
+        check(state.getLastAppliedProgramObject() == pcpA, "program dedup: cache stays on pcpA");
+
+        // Unrelated define change via StateSet also re-invokes Program::apply with same PCP and skips glUseProgram.
+        osg::ref_ptr<osg::StateSet> ssUnrelated = new osg::StateSet;
+        ssUnrelated->setDefine("UNRELATED_DEFINE", osg::StateAttribute::ON);
+        state.pushStateSet(ssA.get());
+        state.pushStateSet(ssUnrelated.get());
+        state.apply();
+        check(currentGlProgram() == 0, "program dedup: unrelated define change skips redundant glUseProgram");
+        state.popStateSet();
+        state.popStateSet();
+
+        // 3. haveAppliedAttribute(Type) clears cache and forces State::apply(ssA) to re-bind.
+        state.haveAppliedAttribute(osg::StateAttribute::PROGRAM);
+        check(state.getLastAppliedProgramObject() == 0, "program dedup: haveAppliedAttribute(PROGRAM) clears cache");
+        state.apply(ssA.get());
+        check(state.getLastAppliedProgramObject() == pcpA && currentGlProgram() == static_cast<GLint>(pcpA->getHandle()),
+              "program dedup: State::apply after haveAppliedAttribute(Type) re-binds");
+
+        // 4. haveAppliedAttribute(const StateAttribute*) clears both attribute cache and PCP so State::apply re-binds.
+        ext->glUseProgram(0);
+        state.haveAppliedAttribute(progA.get());
+        check(state.getLastAppliedProgramObject() == 0, "program dedup: haveAppliedAttribute(const StateAttribute*) clears cache");
+        state.apply(ssA.get());
+        check(state.getLastAppliedProgramObject() == pcpA && currentGlProgram() == static_cast<GLint>(pcpA->getHandle()),
+              "program dedup: State::apply after haveAppliedAttribute(ptr) re-binds");
+
+        // 5. dirtyAllAttributes() clears cache and forces State::apply(ssA) to re-bind.
+        ext->glUseProgram(0);
+        state.dirtyAllAttributes();
+        check(state.getLastAppliedProgramObject() == 0, "program dedup: dirtyAllAttributes() clears cache");
+        state.apply(ssA.get());
+        check(state.getLastAppliedProgramObject() == pcpA && currentGlProgram() == static_cast<GLint>(pcpA->getHandle()),
+              "program dedup: State::apply after dirtyAllAttributes() re-binds");
+
+        // 6. ExternalSectionGuard invalidates cache and forces State::apply(ssA) to re-bind.
+        {
+            osg::State::ExternalSectionGuard guard(state);
+            ext->glUseProgram(0);
+        }
+        check(state.getLastAppliedProgramObject() == 0, "program dedup: ExternalSectionGuard clears cache");
+        state.apply(ssA.get());
+        check(state.getLastAppliedProgramObject() == pcpA && currentGlProgram() == static_cast<GLint>(pcpA->getHandle()),
+              "program dedup: State::apply after ExternalSectionGuard re-binds");
+
+        // 7. Switching to progB and back to progA binds each handle.
+        osg::ref_ptr<osg::StateSet> ssB = new osg::StateSet;
+        ssB->setAttributeAndModes(progB.get(), osg::StateAttribute::ON);
+        state.apply(ssB.get());
+        const osg::Program::PerContextProgram* pcpB = state.getLastAppliedProgramObject();
+        check(pcpB != 0 && pcpB != pcpA && currentGlProgram() == static_cast<GLint>(pcpB->getHandle()),
+              "program dedup: switching to progB binds pcpB");
+        state.apply(ssA.get());
+        check(state.getLastAppliedProgramObject() == pcpA && currentGlProgram() == static_cast<GLint>(pcpA->getHandle()),
+              "program dedup: switching back to progA binds pcpA");
+
+        // 8. Relevant shader define switches to a distinct PCP and binds its handle.
+        osg::ref_ptr<osg::StateSet> ssAlt = new osg::StateSet;
+        ssAlt->setAttributeAndModes(progA.get(), osg::StateAttribute::ON);
+        ssAlt->setDefine("ALT_COLOR", osg::StateAttribute::ON);
+        state.pushStateSet(ssAlt.get());
+        state.apply();
+        const osg::Program::PerContextProgram* pcpAlt = state.getLastAppliedProgramObject();
+        check(pcpAlt != 0 && pcpAlt != pcpA, "program dedup: shader-imported define switches PCP");
+        if (pcpAlt)
+        {
+            check(currentGlProgram() == static_cast<GLint>(pcpAlt->getHandle()),
+                  "program dedup: shader-imported define binds new handle");
+
+            // 9. Relinking an already-active PCP re-binds it even though cache pointer matches.
+            ext->glUseProgram(0);
+            progA->dirtyProgram();
+            progA->apply(state);
+            check(state.getLastAppliedProgramObject() == pcpAlt && currentGlProgram() == static_cast<GLint>(pcpAlt->getHandle()),
+                  "program dedup: relinked active PCP re-binds GL program");
+        }
+        state.popStateSet();
+
+        // 10. releaseGLObjects clears both attribute cache and PCP so subsequent State::apply re-links and binds;
+        // also releasing another program after a nullptr release never dereferences a stale PCP pointer.
+        progA->releaseGLObjects(&state);
+        check(state.getLastAppliedProgramObject() == 0,
+              "program dedup: releaseGLObjects clears cached active PCP");
+        state.apply(ssA.get());
+        const osg::Program::PerContextProgram* pcpARecreated = state.getLastAppliedProgramObject();
+        check(pcpARecreated != 0 && currentGlProgram() == static_cast<GLint>(pcpARecreated->getHandle()),
+              "program dedup: State::apply after releaseGLObjects re-links and binds");
+        progA->releaseGLObjects(0);
+        progB->releaseGLObjects(&state);
+        state.haveAppliedAttribute(osg::StateAttribute::PROGRAM);
+        state.apply(new osg::StateSet);
+        const std::string errors = drainGlErrors();
+        check(errors.empty(), "program dedup: zero GL errors (" + errors + ")");
+    }
 }
 
 int main(int, char**)
@@ -305,6 +456,7 @@ int main(int, char**)
 
     checkContextProperties(*ctxA->getState(), "context A");
     checkMixedStateSet(*ctxA->getState());
+    checkProgramApplyDedup(*ctxA->getState());
 
     const osg::Vec4f colourA(0.25f, 0.50f, 0.75f, 1.0f);
     checkPixelMatches(drawGeometryToRgba32f(*ctxA->getState(), colourA, "context A draw"), colourA, "context A draw");

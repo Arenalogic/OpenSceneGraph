@@ -270,6 +270,24 @@ void Program::releaseGLObjects(osg::State* state) const
     else
     {
         unsigned int contextID = state->getContextID();
+        const PerContextProgram* lastPcp = state->getLastAppliedProgramObject();
+        bool matchesState = (state->getLastAppliedAttribute(osg::StateAttribute::PROGRAM) == this);
+        if (!matchesState && lastPcp != 0 && contextID < _pcpList.size() && _pcpList[contextID].valid())
+        {
+            const ProgramObjects::PerContextPrograms& pcps = _pcpList[contextID]->_perContextPrograms;
+            for (ProgramObjects::PerContextPrograms::const_iterator itr = pcps.begin(); itr != pcps.end(); ++itr)
+            {
+                if (itr->get() == lastPcp)
+                {
+                    matchesState = true;
+                    break;
+                }
+            }
+        }
+        if (matchesState)
+        {
+            state->haveAppliedAttribute(osg::StateAttribute::PROGRAM);
+        }
         _pcpList[contextID] = 0;
     }
 }
@@ -483,17 +501,21 @@ void Program::apply( osg::State& state ) const
 
 
     PerContextProgram* pcp = getPCP( state );
-    if( pcp->needsLink() ) compileGLObjects( state );
+    const bool relinked = pcp->needsLink();
+    if( relinked ) compileGLObjects( state );
     if( pcp->isLinked() )
     {
-        // for shader debugging: to minimize performance impact,
-        // optionally validate based on notify level.
+        if( relinked || state.getLastAppliedProgramObject() != pcp )
+        {
+            // for shader debugging: to minimize performance impact,
+            // optionally validate based on notify level.
 #ifndef __APPLE__
-        if( osg::isNotifyEnabled(osg::INFO) )
-            pcp->validateProgram();
+            if( osg::isNotifyEnabled(osg::INFO) )
+                pcp->validateProgram();
 #endif
-        pcp->useProgram();
-        state.setLastAppliedProgramObject(pcp);
+            pcp->useProgram();
+            state.setLastAppliedProgramObject(pcp);
+        }
     }
     else
     {

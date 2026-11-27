@@ -1212,11 +1212,21 @@ void State::haveAppliedAttribute(AttributeMap& attributeMap,const StateAttribute
 
         // will need to update this attribute on next apply so set it to changed.
         as.changed = true;
+
+        if (&attributeMap == &_attributeMap && attribute->getType() == StateAttribute::PROGRAM)
+        {
+            as.last_applied_attribute = 0L;
+            _lastAppliedProgramObject = 0;
+        }
     }
 }
 
 void State::haveAppliedAttribute(AttributeMap& attributeMap,StateAttribute::Type type, unsigned int member)
 {
+    if (&attributeMap == &_attributeMap && type == StateAttribute::PROGRAM)
+    {
+        _lastAppliedProgramObject = 0;
+    }
 
     AttributeMap::iterator itr = attributeMap.find(StateAttribute::TypeMemberPair(type,member));
     if (itr!=attributeMap.end())
@@ -1312,6 +1322,7 @@ void State::dirtyAllAttributes()
         }
     }
 
+    _lastAppliedProgramObject = 0;
 }
 
 #ifndef GL_ARRAY_BUFFER
